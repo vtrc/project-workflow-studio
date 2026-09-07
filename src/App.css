@@ -74,6 +74,8 @@
 
 .button:hover { transform: translateY(-1px); }
 .button:active { transform: translateY(0); }
+.button:disabled { opacity: 0.48; cursor: not-allowed; transform: none; }
+.button:disabled:hover { background: inherit; border-color: inherit; }
 .button-quiet:hover { background: #edf1ef; }
 
 .button-primary {

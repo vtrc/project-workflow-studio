@@ -21,7 +21,7 @@ Project Workflow Studio is a local React application for visually authoring and 
 | `src/components/` | Workflow node and inspector UI. |
 | `src/workflow.ts` | YAML recipe parsing, default recipe, ID generation, and validation. |
 | `src/types.ts` | Workflow recipe and Skill-binding types. |
-| `.agents/skills/` | Versioned agent Skills, including `impeccable`. |
+| `.github/workflows/deploy-pages.yml` | Builds and deploys the Vite app to GitHub Pages. |
 
 ## Commands
 
@@ -31,11 +31,25 @@ npm run build
 npm run dev
 ```
 
-Run `npm run lint` and `npm run build` after code, configuration, documentation, or skill changes. Treat warnings emitted by third-party code under `.agents/skills/` separately from warnings in Studio source.
+Run `npm run lint` and `npm run build` after code, configuration, or documentation changes. Skills are maintained in the separate Project Workflow repository.
 
 ## UI work
 
-For frontend design, accessibility, UX, or visual-polish work, read `.agents/skills/impeccable/SKILL.md` before editing. The Studio is an editor: clarity, scanability, keyboard accessibility, and predictable YAML behavior take priority over decorative effects.
+For frontend design, accessibility, UX, or visual-polish work, read the `impeccable` Skill from the active Project Workflow environment before editing. The Studio is an editor: clarity, scanability, keyboard accessibility, and predictable YAML behavior take priority over decorative effects.
+
+## Local workflow files
+
+The published Studio is the primary editing surface. Use the browser's file
+picker to let the person choose `workflow.yaml`; never infer or access a local
+path without that explicit selection. When `showOpenFilePicker()` and
+`FileSystemFileHandle.createWritable()` are available, preserve the handle and
+save back to the selected file only after the person presses **Guardar cambios**.
+Keep the import-and-download fallback for browsers without write permissions.
+
+The public URL is `https://vtrc.github.io/project-workflow-studio/`. The
+`project-workflow` Skill in the separate Project Workflow repository owns
+the handoff to that URL; the Studio itself does not clone repositories, invoke
+npm, or upload YAML files.
 
 ## Git
 

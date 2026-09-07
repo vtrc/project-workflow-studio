@@ -20,11 +20,13 @@ npm run build
 
 ## Flujo de trabajo
 
-1. Abre o crea una receta en el editor.
-2. Añade etapas y conéctalas mediante `on_success`.
-3. Configura entradas, salidas, delegación y las Skills de cada etapa.
-4. Revisa los avisos de validación.
-5. Exporta el YAML para usarlo en el entorno que ejecuta el workflow.
+1. Abre el [Studio publicado](https://vtrc.github.io/project-workflow-studio/).
+2. Pulsa **Abrir workflow** y selecciona `workflow.yaml` en tu máquina.
+3. Añade etapas y conéctalas mediante `on_success`.
+4. Configura entradas, salidas, delegación y las Skills de cada etapa.
+5. Revisa los avisos de validación y pulsa **Guardar cambios** para escribir sobre el mismo archivo.
+
+El Studio usa el selector de archivos del navegador: la ruta siempre la elige la persona. En navegadores compatibles con File System Access API, el permiso de escritura se solicita al guardar y no se sube el archivo a ningún servidor. Si el navegador no ofrece esa API, se puede importar el archivo y descargar una copia editada.
 
 ## Capacidades
 
@@ -54,13 +56,13 @@ El Studio **no ejecuta, instala ni distribuye** `project-workflow`. Ambos proyec
 
 La aplicación está construida con React, TypeScript, Vite, React Flow y YAML. La lógica del formato y sus validaciones vive en `src/workflow.ts`; los tipos se definen en `src/types.ts`.
 
-## Skills del repositorio
+## Skills y responsabilidades
 
-Las Skills versionadas para los agentes viven en `.agents/skills/`. La Skill `impeccable` se usa para trabajo de interfaz y debe revisarse antes de ejecutarla, ya que incluye scripts de automatización.
+Las Skills pertenecen al repositorio [Project Workflow](https://github.com/vtrc/project-workflow), no a este Studio. El Studio solo proporciona la interfaz visual y no instala, distribuye ni ejecuta Skills.
 
 ## Publicación
 
-El repositorio se publica en [github.com/vtrc/project-workflow-studio](https://github.com/vtrc/project-workflow-studio). La URL de la aplicación desplegada todavía está por decidir.
+El repositorio se publica en [github.com/vtrc/project-workflow-studio](https://github.com/vtrc/project-workflow-studio) y el Studio en [vtrc.github.io/project-workflow-studio](https://vtrc.github.io/project-workflow-studio/). GitHub Pages recompila `main` mediante Actions. La primera vez, una persona con permisos de administración debe seleccionar **Settings → Pages → GitHub Actions** como fuente de publicación.
 
 ## Límites del repositorio
 

@@ -17,6 +17,7 @@ import {
   Download,
   FileOutput,
   Plus,
+  Save,
   Settings2,
   Upload,
   Workflow,
@@ -36,6 +37,30 @@ import './App.css'
 
 type Position = { x: number; y: number }
 type HandleSide = 'top' | 'right' | 'bottom' | 'left'
+
+type LocalFileWritable = {
+  write: (contents: string) => Promise<void>
+  close: () => Promise<void>
+}
+
+type LocalFileHandle = {
+  name: string
+  getFile: () => Promise<File>
+  createWritable: () => Promise<LocalFileWritable>
+}
+
+declare global {
+  interface Window {
+    showOpenFilePicker?: (options?: {
+      excludeAcceptAllOption?: boolean
+      multiple?: boolean
+      types?: Array<{
+        description: string
+        accept: Record<string, string[]>
+      }>
+    }) => Promise<LocalFileHandle[]>
+  }
+}
 
 const nodeTypes = { workflowStep: WorkflowNode }
 const nodeWidth = 254
@@ -109,8 +134,10 @@ function App() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(
     defaultWorkflow.steps[0]?.id ?? null,
   )
-  const [notice, setNotice] = useState('Cambios guardados en el modelo YAML')
+  const [notice, setNotice] = useState('Selecciona workflow.yaml para editarlo y guardarlo en el mismo archivo')
   const [importError, setImportError] = useState<string | null>(null)
+  const [sourceFile, setSourceFile] = useState<LocalFileHandle | null>(null)
+  const [sourceFileName, setSourceFileName] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const flowInstanceRef = useRef<ReactFlowInstance<Node<WorkflowNodeData>, Edge> | null>(null)
 
@@ -327,8 +354,67 @@ function App() {
     link.download = 'workflow.yaml'
     link.click()
     URL.revokeObjectURL(url)
-    setNotice('workflow.yaml preparado para descargar')
+    setNotice('Copia de workflow.yaml preparada para descargar')
   }, [serializedYaml])
+
+  const loadWorkflowFile = useCallback(
+    async (file: File, handle?: LocalFileHandle) => {
+      const source = await file.text()
+      const imported = workflowFromYaml(source)
+      updateWorkflow(imported, `Abierto ${file.name}`)
+      setPositions(initialPositions(imported))
+      setSelectedStepId(imported.steps[0]?.id ?? null)
+      setSourceFile(handle ?? null)
+      setSourceFileName(file.name)
+    },
+    [updateWorkflow],
+  )
+
+  const openWorkflowFile = useCallback(async () => {
+    if (!window.showOpenFilePicker) {
+      importInputRef.current?.click()
+      return
+    }
+
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        excludeAcceptAllOption: true,
+        multiple: false,
+        types: [
+          {
+            description: 'Workflow YAML',
+            accept: {
+              'application/x-yaml': ['.yaml', '.yml'],
+              'text/yaml': ['.yaml', '.yml'],
+            },
+          },
+        ],
+      })
+      if (!handle) return
+      await loadWorkflowFile(await handle.getFile(), handle)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      setImportError(error instanceof Error ? error.message : 'No se ha podido abrir el archivo YAML.')
+    }
+  }, [loadWorkflowFile])
+
+  const saveWorkflowFile = useCallback(async () => {
+    if (!sourceFile) return
+
+    try {
+      const writable = await sourceFile.createWritable()
+      await writable.write(serializedYaml)
+      await writable.close()
+      setNotice(`Cambios guardados en ${sourceFileName ?? sourceFile.name}`)
+      setImportError(null)
+    } catch (error) {
+      setImportError(
+        error instanceof Error
+          ? `No se ha podido guardar ${sourceFileName ?? sourceFile.name}: ${error.message}`
+          : 'No se ha podido guardar el archivo YAML.',
+      )
+    }
+  }, [serializedYaml, sourceFile, sourceFileName])
 
   const importYaml = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -336,11 +422,7 @@ function App() {
       if (!file) return
 
       try {
-        const source = await file.text()
-        const imported = workflowFromYaml(source)
-        updateWorkflow(imported, `Importado ${file.name}`)
-        setPositions(initialPositions(imported))
-        setSelectedStepId(imported.steps[0]?.id ?? null)
+        await loadWorkflowFile(file)
       } catch (error) {
         setImportError(
           error instanceof Error ? error.message : 'No se ha podido leer el archivo YAML.',
@@ -349,7 +431,7 @@ function App() {
         event.target.value = ''
       }
     },
-    [updateWorkflow],
+    [loadWorkflowFile],
   )
 
   return (
@@ -375,10 +457,19 @@ function App() {
             accept=".yaml,.yml,text/yaml,application/x-yaml"
             onChange={importYaml}
           />
-          <button className="button button-quiet" type="button" onClick={() => importInputRef.current?.click()}>
-            <Upload size={16} aria-hidden="true" /> Importar
+          <button className="button button-quiet" type="button" onClick={openWorkflowFile}>
+            <Upload size={16} aria-hidden="true" /> Abrir workflow
           </button>
-          <button className="button button-primary" type="button" onClick={exportYaml}>
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={saveWorkflowFile}
+            disabled={!sourceFile}
+            title={sourceFile ? `Guardar en ${sourceFileName}` : 'Abre un workflow desde el selector del navegador para habilitar el guardado directo'}
+          >
+            <Save size={16} aria-hidden="true" /> Guardar cambios
+          </button>
+          <button className="button button-secondary" type="button" onClick={exportYaml}>
             <Download size={16} aria-hidden="true" /> Exportar YAML
           </button>
         </div>
