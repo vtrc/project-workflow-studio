@@ -73,6 +73,7 @@
 .toolbar-group-primary { padding-right: 0; border-right: 0; }
 .button-history { min-height: 32px; padding: 0 9px; color: #40554e; font-size: 0.76rem; }
 .button-history:hover { color: #0f766e; background: #edf5f2; }
+.button-open-workflow { min-height: 32px; padding: 0 10px; font-size: 0.76rem; }
 
 .button {
   justify-content: center;
@@ -352,8 +353,8 @@
   .brand-subtitle, .workflow-title { display: none; }
   .toolbar { width: 100%; justify-content: flex-end; gap: 3px; }
   .toolbar-group { gap: 2px; padding-right: 3px; border-right: 0; }
-  .button-history, .toolbar .button-primary { width: 32px; min-height: 32px; padding: 0; gap: 0; font-size: 0; }
-  .button-history svg, .toolbar .button-primary svg { width: 16px; height: 16px; }
+  .button-history, .toolbar .button-primary, .button-open-workflow { width: 32px; min-height: 32px; padding: 0; gap: 0; font-size: 0; }
+  .button-history svg, .toolbar .button-primary svg, .button-open-workflow svg { width: 16px; height: 16px; }
   .canvas-panel { padding: 18px 14px 14px; }
   .canvas-toolbar { align-items: center; }
   .canvas-toolbar h1 { font-size: 1.06rem; }

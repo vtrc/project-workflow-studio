@@ -23,7 +23,6 @@ import {
   Save,
   Settings2,
   Undo2,
-  Upload,
   Workflow,
   X,
 } from 'lucide-react'
@@ -243,8 +242,12 @@ function App() {
   const expectedFileHint = useMemo(() => getSafeRelativeFileHint(), [])
   const [notice, setNotice] = useState(
     expectedFileHint
-      ? `Selecciona ${expectedFileHint} con el selector del navegador para abrirlo.`
-      : 'Selecciona workflow.yaml para editarlo y guardarlo en el mismo archivo',
+      ? window.showDirectoryPicker
+        ? `Abre la carpeta raíz que contiene ${expectedFileHint}.`
+        : `Selecciona ${expectedFileHint} para abrirlo. El historial será temporal.`
+      : window.showDirectoryPicker
+        ? 'Abre la carpeta raíz que contiene workflow.yaml para editarlo y guardar su historial local.'
+        : 'Abre workflow.yaml para editarlo. El historial será temporal en este navegador.',
   )
   const [importError, setImportError] = useState<string | null>(null)
   const [sourceFile, setSourceFile] = useState<LocalFileHandle | null>(null)
@@ -635,11 +638,8 @@ function App() {
     [loadStoredHistory, replaceHistory, scheduleHistoryPersistence],
   )
 
-  const openProjectFolder = useCallback(async () => {
-    if (!window.showDirectoryPicker) {
-      setImportError('Este navegador no permite seleccionar una carpeta. Usa “Abrir workflow”.')
-      return
-    }
+  const openWorkflowFromFolder = useCallback(async () => {
+    if (!window.showDirectoryPicker) return
     try {
       const root = await window.showDirectoryPicker({ mode: 'readwrite' })
       const workflowPath = expectedFileHint ?? 'workflow.yaml'
@@ -684,6 +684,14 @@ function App() {
       setImportError(error instanceof Error ? error.message : 'No se ha podido abrir el archivo YAML.')
     }
   }, [loadWorkflowFile])
+
+  const openWorkflow = useCallback(() => {
+    if (window.showDirectoryPicker) {
+      void openWorkflowFromFolder()
+      return
+    }
+    void openWorkflowFile()
+  }, [openWorkflowFile, openWorkflowFromFolder])
 
   const saveWorkflowFile = useCallback(async () => {
     if (!sourceFile) return
@@ -747,23 +755,15 @@ function App() {
           />
           <div className="toolbar-group" aria-label="Archivo">
             <button
-              className="icon-button"
+              className="button button-secondary button-open-workflow"
               type="button"
-              onClick={openProjectFolder}
-              disabled={!window.showDirectoryPicker}
-              aria-label="Seleccionar carpeta del proyecto"
-              title={window.showDirectoryPicker ? 'Seleccionar carpeta del proyecto y habilitar el historial local' : 'Este navegador no admite el acceso a carpetas'}
+              onClick={openWorkflow}
+              aria-label="Abrir workflow"
+              title={window.showDirectoryPicker
+                ? 'Seleccionar la carpeta raíz, abrir el YAML y guardar el historial local'
+                : 'Abrir un archivo YAML; el historial será temporal en este navegador'}
             >
-              <FolderOpen size={16} aria-hidden="true" />
-            </button>
-            <button
-              className="icon-button"
-              type="button"
-              onClick={openWorkflowFile}
-              aria-label="Abrir archivo YAML"
-              title="Abrir solo un archivo YAML; el historial no se guardará en la carpeta"
-            >
-              <Upload size={16} aria-hidden="true" />
+              <FolderOpen size={16} aria-hidden="true" /> <span>Abrir workflow</span>
             </button>
           </div>
           <div className="toolbar-group" aria-label="Edición">
@@ -820,7 +820,7 @@ function App() {
           <div className="canvas-help" role="status">
             <span><span className="status-dot" /> {notice}</span>
             {expectedFileHint && (
-              <span className="file-hint-copy">Ruta sugerida: {expectedFileHint}. El navegador no la abrirá automáticamente.</span>
+              <span className="file-hint-copy">Ruta sugerida: {expectedFileHint}. Elige su carpeta raíz para abrirla.</span>
             )}
             {validationIssues.length > 0 && (
               <span className="validation-warning">Revisa {validationIssues.length} aviso{validationIssues.length === 1 ? '' : 's'} en el inspector.</span>
@@ -928,7 +928,7 @@ function App() {
             <p id="history-drawer-note" className="history-note">
               {historyEnabled
                 ? `Se guarda solo en .workflow/studio-history/${historyPath ? ` (${historyPath})` : ''}.`
-                : 'Historial temporal. Selecciona la carpeta del proyecto para conservarlo al reiniciar.'}
+                : 'Historial temporal. Abre el workflow desde su carpeta raíz para conservarlo al reiniciar.'}
             </p>
             <div className="history-actions" aria-label="Navegar por el historial">
               <button className="button button-secondary button-small" type="button" onClick={() => restoreHistoryEntry(history.cursor - 1)} disabled={history.cursor === 0}>

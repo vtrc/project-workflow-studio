@@ -39,14 +39,18 @@ For frontend design, accessibility, UX, or visual-polish work, read the `impecca
 
 ## Local workflow files
 
-The published Studio is the primary editing surface. Use the browser's file
-picker to let the person choose `workflow.yaml`; never infer or access a local
-path without that explicit selection. When `showOpenFilePicker()` and
+The published Studio is the primary editing surface. Use the visible **Abrir
+workflow** action to let the person explicitly select the project root when
+the browser supports `showDirectoryPicker()`. Resolve only `workflow.yaml` or
+the safe relative `?path=` hint within that selected root, then create or reuse
+`.workflow/studio-history/`. A `FileSystemFileHandle` cannot expose its parent
+directory, so the file-picker fallback must remain session-only. When
+`showOpenFilePicker()` and
 `FileSystemFileHandle.createWritable()` are available, preserve the handle and
 save back to the selected file only after the person presses **Guardar cambios**.
 Keep the import-and-download fallback for browsers without write permissions.
 
-When a person chooses **Seleccionar carpeta del proyecto** through the File System Access API, use the safe relative `?path=` hint only to resolve the YAML beneath that chosen root. The Studio may then write a local-only, ignored history cache at `.workflow/studio-history/`: `manifest.json` (schema version, relative path, cursor, entry metadata) and `snapshots/` (workflow plus diagram positions). Never upload YAML, snapshots, file handles, permissions, or history metadata. Keep the direct file-picker/import-download fallback for browsers without directory access; it provides session-only history. Validate hints as relative YAML paths with no empty, absolute, or `..` segments.
+The Studio may then write a local-only, ignored history cache at `.workflow/studio-history/`: `manifest.json` (schema version, relative path, cursor, entry metadata) and `snapshots/` (workflow plus diagram positions). Never upload YAML, snapshots, file handles, permissions, or history metadata. Keep the direct file-picker/import-download fallback for browsers without directory access; it provides session-only history. Validate hints as relative YAML paths with no empty, absolute, or `..` segments.
 
 The public URL is `https://vtrc.github.io/project-workflow-studio/`. The
 `project-workflow` Skill in the separate Project Workflow repository owns

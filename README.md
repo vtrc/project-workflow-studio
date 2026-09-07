@@ -21,8 +21,8 @@ npm run build
 ## Flujo de trabajo
 
 1. Abre el [Studio publicado](https://vtrc.github.io/project-workflow-studio/).
-2. Si has abierto el Studio con `?path=ruta/relativa/workflow.yaml`, pulsa **Seleccionar carpeta del proyecto** y elige la raíz del proyecto. El Studio abrirá esa ruta y activará el historial local.
-3. Si tu navegador no permite seleccionar carpetas, pulsa **Abrir archivo** y selecciona el YAML directamente.
+2. Pulsa **Abrir workflow**. En navegadores compatibles, elige la carpeta raíz del proyecto: el Studio abre `workflow.yaml` (o la ruta relativa y segura de `?path=ruta/relativa/workflow.yaml`) y crea o reutiliza el historial local.
+3. Si tu navegador no permite seleccionar carpetas, el mismo botón abre el selector de archivo. Ese modo conserva un historial temporal durante la sesión.
 4. Añade etapas y conéctalas mediante `on_success`.
 5. Configura entradas, salidas, delegación y las Skills de cada etapa.
 6. Revisa los avisos de validación y pulsa **Guardar cambios** para escribir sobre el mismo archivo.
@@ -31,7 +31,7 @@ El Studio usa el selector de archivos del navegador: la ruta siempre la elige la
 
 ## Historial local
 
-Al seleccionar la carpeta del proyecto, el Studio guarda un historial lineal y local (incluidas las posiciones del diagrama) en:
+Al abrir el workflow desde la carpeta raíz, el Studio guarda un historial lineal y local (incluidas las posiciones del diagrama) en:
 
 ```
 .workflow/studio-history/
