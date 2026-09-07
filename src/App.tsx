@@ -25,6 +25,7 @@ import {
   Undo2,
   Upload,
   Workflow,
+  X,
 } from 'lucide-react'
 import { stringify } from 'yaml'
 import { Inspector } from './components/Inspector'
@@ -253,7 +254,10 @@ function App() {
   )
   const [historyEnabled, setHistoryEnabled] = useState(false)
   const [historyPath, setHistoryPath] = useState<string | null>(null)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
+  const historyTriggerRef = useRef<HTMLButtonElement>(null)
+  const historyCloseRef = useRef<HTMLButtonElement>(null)
   const flowInstanceRef = useRef<ReactFlowInstance<Node<WorkflowNodeData>, Edge> | null>(null)
   const workflowRef = useRef(workflow)
   const positionsRef = useRef(positions)
@@ -268,6 +272,22 @@ function App() {
   useEffect(() => () => {
     if (historyTimerRef.current) window.clearTimeout(historyTimerRef.current)
   }, [])
+
+  const closeHistory = useCallback(() => {
+    setIsHistoryOpen(false)
+    window.setTimeout(() => historyTriggerRef.current?.focus(), 0)
+  }, [])
+
+  useEffect(() => {
+    if (!isHistoryOpen) return
+
+    historyCloseRef.current?.focus()
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeHistory()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [closeHistory, isHistoryOpen])
 
   const selectedStep =
     workflow.steps.find((step) => step.id === selectedStepId) ?? null
@@ -725,36 +745,63 @@ function App() {
             accept=".yaml,.yml,application/x-yaml,text/yaml"
             onChange={importYaml}
           />
+          <div className="toolbar-group" aria-label="Archivo">
+            <button
+              className="icon-button"
+              type="button"
+              onClick={openProjectFolder}
+              disabled={!window.showDirectoryPicker}
+              aria-label="Seleccionar carpeta del proyecto"
+              title={window.showDirectoryPicker ? 'Seleccionar carpeta del proyecto y habilitar el historial local' : 'Este navegador no admite el acceso a carpetas'}
+            >
+              <FolderOpen size={16} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              onClick={openWorkflowFile}
+              aria-label="Abrir archivo YAML"
+              title="Abrir solo un archivo YAML; el historial no se guardará en la carpeta"
+            >
+              <Upload size={16} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="toolbar-group" aria-label="Edición">
+            <button className="icon-button" type="button" onClick={() => restoreHistoryEntry(history.cursor - 1)} disabled={history.cursor === 0} aria-label="Deshacer" title="Deshacer">
+              <Undo2 size={15} aria-hidden="true" />
+            </button>
+            <button className="icon-button" type="button" onClick={() => restoreHistoryEntry(history.cursor + 1)} disabled={history.cursor >= history.entries.length - 1} aria-label="Rehacer" title="Rehacer">
+              <Redo2 size={15} aria-hidden="true" />
+            </button>
+          </div>
           <button
-            className="button button-quiet"
+            ref={historyTriggerRef}
+            className="button button-quiet button-history"
             type="button"
-            onClick={openProjectFolder}
-            disabled={!window.showDirectoryPicker}
-            title={window.showDirectoryPicker ? 'Seleccionar la carpeta del proyecto y habilitar el historial local' : 'Este navegador no admite el acceso a carpetas'}
+            onClick={() => setIsHistoryOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={isHistoryOpen}
+            aria-controls="history-drawer"
+            aria-label="Abrir historial de versiones"
+            title="Abrir historial de versiones"
           >
-            <FolderOpen size={16} aria-hidden="true" /> Seleccionar carpeta del proyecto
+            <History size={16} aria-hidden="true" /> Historial
           </button>
-          <button className="button button-quiet" type="button" onClick={openWorkflowFile} title="Abrir solo un archivo YAML; el historial no se guardará en la carpeta">
-            <Upload size={16} aria-hidden="true" /> Abrir archivo
-          </button>
-          <button className="icon-button" type="button" onClick={() => restoreHistoryEntry(history.cursor - 1)} disabled={history.cursor === 0} aria-label="Deshacer" title="Deshacer">
-            <Undo2 size={15} aria-hidden="true" />
-          </button>
-          <button className="icon-button" type="button" onClick={() => restoreHistoryEntry(history.cursor + 1)} disabled={history.cursor >= history.entries.length - 1} aria-label="Rehacer" title="Rehacer">
-            <Redo2 size={15} aria-hidden="true" />
-          </button>
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={saveWorkflowFile}
-            disabled={!sourceFile}
-            title={sourceFile ? `Guardar en ${sourceFileName}` : 'Abre un workflow desde el selector del navegador para habilitar el guardado directo'}
-          >
-            <Save size={16} aria-hidden="true" /> Guardar cambios
-          </button>
-          <button className="button button-secondary" type="button" onClick={exportYaml}>
-            <Download size={16} aria-hidden="true" /> Exportar YAML
-          </button>
+          <div className="toolbar-group toolbar-group-primary" aria-label="Guardar y exportar">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={saveWorkflowFile}
+              disabled={!sourceFile}
+              aria-label="Guardar cambios"
+              title={sourceFile ? `Guardar en ${sourceFileName}` : 'Abre un workflow desde el selector del navegador para habilitar el guardado directo'}
+            >
+              <Save size={16} aria-hidden="true" /> Guardar
+            </button>
+            <button className="icon-button" type="button" onClick={exportYaml} aria-label="Exportar YAML" title="Exportar YAML">
+              <Download size={16} aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -830,15 +877,50 @@ function App() {
 
           {importError && <p className="import-error" role="alert">{importError}</p>}
 
-          <section className="history-panel" aria-labelledby="history-heading">
-            <div className="history-heading">
-              <History size={16} aria-hidden="true" />
-              <div>
-                <p className="section-kicker">HISTORIAL</p>
-                <h3 id="history-heading">Versiones del workflow</h3>
+
+
+          <Inspector
+            workflow={workflow}
+            selectedStep={selectedStep}
+            validationIssues={validationIssues}
+            onWorkflowChange={(change) => updateWorkflow({ ...workflow, ...change })}
+            onStepChange={updateStep}
+            onDuplicateStep={duplicateStep}
+            onDeleteStep={deleteStep}
+          />
+        </aside>
+      </section>
+
+      {isHistoryOpen && (
+        <div className="history-drawer-layer">
+          <div
+            id="history-drawer"
+            className="history-drawer"
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby="history-drawer-title"
+            aria-describedby="history-drawer-note"
+          >
+            <div className="history-drawer-header">
+              <div className="history-heading">
+                <span className="inspector-heading-icon" aria-hidden="true"><History size={17} /></span>
+                <div>
+                  <h2 id="history-drawer-title">Historial</h2>
+                  <p>Versiones del workflow</p>
+                </div>
               </div>
+              <button
+                ref={historyCloseRef}
+                className="icon-button"
+                type="button"
+                onClick={closeHistory}
+                aria-label="Cerrar historial"
+                title="Cerrar historial (Escape)"
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
             </div>
-            <p className="history-note">
+            <p id="history-drawer-note" className="history-note">
               {historyEnabled
                 ? `Se guarda solo en .workflow/studio-history/${historyPath ? ` (${historyPath})` : ''}.`
                 : 'Historial temporal. Selecciona la carpeta del proyecto para conservarlo al reiniciar.'}
@@ -872,19 +954,9 @@ function App() {
                 )
               })}
             </ol>
-          </section>
-
-          <Inspector
-            workflow={workflow}
-            selectedStep={selectedStep}
-            validationIssues={validationIssues}
-            onWorkflowChange={(change) => updateWorkflow({ ...workflow, ...change })}
-            onStepChange={updateStep}
-            onDuplicateStep={duplicateStep}
-            onDeleteStep={deleteStep}
-          />
-        </aside>
-      </section>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

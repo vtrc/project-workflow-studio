@@ -68,7 +68,11 @@
 
 .file-hint-copy { color: #5d716a; }
 
-.toolbar { justify-content: flex-end; gap: 8px; }
+.toolbar { justify-content: flex-end; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.toolbar-group { display: inline-flex; align-items: center; gap: 3px; padding-right: 8px; border-right: 1px solid #dfe6e3; }
+.toolbar-group-primary { padding-right: 0; border-right: 0; }
+.button-history { min-height: 32px; padding: 0 9px; color: #40554e; font-size: 0.76rem; }
+.button-history:hover { color: #0f766e; background: #edf5f2; }
 
 .button {
   justify-content: center;
@@ -104,8 +108,8 @@
 .button-small { min-height: 31px; padding: 0 9px; font-size: 0.76rem; }
 
 .icon-button {
-  width: 31px;
-  height: 31px;
+  width: 32px;
+  height: 32px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -129,7 +133,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 27px 28px 28px;
+  padding: 22px 24px 24px;
 }
 
 .canvas-toolbar {
@@ -137,11 +141,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 16px;
+  padding-bottom: 12px;
 }
 
 .section-kicker {
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   color: #778681;
   font-size: 0.64rem;
   font-weight: 790;
@@ -154,13 +158,13 @@
   letter-spacing: -0.03em;
 }
 
-.canvas-toolbar h1 { font-size: 1.22rem; }
+.canvas-toolbar h1 { font-size: 1.16rem; }
 
 .canvas-help {
   justify-content: space-between;
   gap: 16px;
-  min-height: 30px;
-  margin-bottom: 13px;
+  min-height: 28px;
+  margin-bottom: 10px;
   color: #687773;
   font-size: 0.76rem;
 }
@@ -272,18 +276,24 @@
 .inspector-heading h2 { max-width: 265px; overflow: hidden; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
 .import-error { margin: 14px 0 0; padding: 10px 11px; border-radius: 7px; color: #9e3029; background: #fff2f0; font-size: 0.77rem; line-height: 1.4; }
 
-.history-panel { padding: 17px 0; border-bottom: 1px solid #e5ebe8; }
-.history-heading { display: flex; align-items: flex-start; gap: 9px; color: #1f7268; }
-.history-heading h3 { margin: 0; color: #2a3834; font-size: 0.77rem; letter-spacing: 0.01em; }
-.history-heading .section-kicker { margin-bottom: 2px; }
-.history-note { margin: 9px 0 0; color: #71807b; font-size: 0.7rem; line-height: 1.4; }
-.history-actions { display: flex; gap: 7px; margin-top: 11px; }
-.history-list { display: grid; gap: 5px; max-height: 184px; margin: 11px 0 0; padding: 0; overflow-y: auto; list-style: none; }
-.history-entry { width: 100%; display: grid; gap: 2px; padding: 8px 9px; border: 1px solid #dbe4e0; border-radius: 7px; color: #3b5049; background: #fff; text-align: left; font-size: 0.72rem; font-weight: 700; cursor: pointer; }
+.history-panel { display: none; }
+.history-heading { display: flex; align-items: flex-start; gap: 10px; color: #1f7268; }
+.history-heading h2 { margin: 0; color: #1f302b; font-size: 1rem; letter-spacing: -0.02em; }
+.history-heading p { margin: 3px 0 0; color: #71807b; font-size: 0.73rem; }
+.history-note { margin: 14px 0 0; color: #71807b; font-size: 0.73rem; line-height: 1.45; }
+.history-actions { display: flex; gap: 7px; margin-top: 14px; }
+.history-list { display: grid; gap: 6px; margin: 14px 0 0; padding: 0; overflow-y: auto; list-style: none; }
+.history-entry { width: 100%; display: grid; gap: 3px; padding: 9px 10px; border: 1px solid #dbe4e0; border-radius: 8px; color: #3b5049; background: #fff; text-align: left; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
 .history-entry:hover { border-color: #8fafa6; background: #f8fbf9; }
 .history-entry:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
 .history-entry.is-current { border-color: #0f766e; background: #edf7f3; color: #0b6259; }
-.history-entry time { color: #7a8984; font-size: 0.65rem; font-weight: 560; }
+.history-entry time { color: #7a8984; font-size: 0.66rem; font-weight: 560; }
+
+.history-drawer-layer { position: fixed; z-index: 50; inset: 64px 0 0; display: flex; justify-content: flex-end; pointer-events: none; }
+.history-drawer { width: min(376px, 100vw); min-height: 0; display: flex; flex-direction: column; padding: 20px; border-left: 1px solid #cad7d2; background: #fbfcfb; box-shadow: -14px 8px 30px rgba(32, 55, 47, 0.14); pointer-events: auto; animation: history-drawer-enter 180ms cubic-bezier(.2,.75,.25,1); }
+.history-drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 15px; border-bottom: 1px solid #e5ebe8; }
+.history-drawer .history-list { max-height: none; flex: 1; min-height: 0; padding-right: 2px; }
+@keyframes history-drawer-enter { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
 
 .inspector-form { padding-top: 8px; }
 .field-group { padding: 17px 0; border-bottom: 1px solid #e5ebe8; }
@@ -332,19 +342,26 @@
   .editor-layout { height: auto; overflow: visible; grid-template-columns: 1fr; }
   .canvas-panel { min-height: 64vh; }
   .inspector-panel { max-height: 52vh; border-top: 1px solid #d8e0dc; border-left: 0; }
+  .history-drawer-layer { inset: 64px 0 0; }
 }
 
 @media (max-width: 650px) {
-  .topbar { height: auto; min-height: 64px; grid-template-columns: 1fr auto; padding: 12px 14px; }
-  .workflow-title { display: none; }
-  .toolbar { gap: 4px; }
-  .toolbar .button { padding: 0 8px; font-size: 0.75rem; }
-  .canvas-panel { padding: 20px 14px 14px; }
+  .topbar { height: auto; min-height: 58px; grid-template-columns: 1fr; gap: 8px; padding: 10px 12px; }
+  .brand { gap: 7px; font-size: 0.86rem; }
+  .brand-mark { width: 28px; height: 28px; }
+  .brand-subtitle, .workflow-title { display: none; }
+  .toolbar { width: 100%; justify-content: flex-end; gap: 3px; }
+  .toolbar-group { gap: 2px; padding-right: 3px; border-right: 0; }
+  .button-history, .toolbar .button-primary { width: 32px; min-height: 32px; padding: 0; gap: 0; font-size: 0; }
+  .button-history svg, .toolbar .button-primary svg { width: 16px; height: 16px; }
+  .canvas-panel { padding: 18px 14px 14px; }
   .canvas-toolbar { align-items: center; }
   .canvas-toolbar h1 { font-size: 1.06rem; }
   .canvas-help { align-items: flex-start; flex-direction: column; gap: 5px; margin-bottom: 10px; }
   .flow-wrapper { min-height: 465px; }
   .inspector-panel { padding: 19px 14px 24px; }
+  .history-drawer-layer { inset: 58px 0 0; }
+  .history-drawer { width: 100%; padding: 16px; border-left: 0; }
   .two-fields { grid-template-columns: 1fr; }
 }
 
