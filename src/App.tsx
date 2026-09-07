@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import { stringify } from 'yaml'
 import { Inspector } from './components/Inspector'
+import { SkillCatalogPanel } from './components/SkillCatalogPanel'
 import { WorkflowNode, type WorkflowNodeData } from './components/WorkflowNode'
 import {
   createEmptyStep,
@@ -39,6 +40,7 @@ import {
   workflowFromYaml,
 } from './workflow'
 import type { WorkflowRecipe, WorkflowStep } from './types'
+import { catalogFreshness, validateSkillCatalog, type SkillCatalog } from './skillCatalog'
 import {
   asPersistedManifest,
   cloneSnapshot,
@@ -268,6 +270,9 @@ function App() {
   const [importError, setImportError] = useState<string | null>(null)
   const [sourceFile, setSourceFile] = useState<LocalFileHandle | null>(null)
   const [sourceFileName, setSourceFileName] = useState<string | null>(null)
+  const [skillCatalog, setSkillCatalog] = useState<SkillCatalog | null>(null)
+  const [skillCatalogState, setSkillCatalogState] = useState<'unavailable' | 'missing' | 'invalid' | 'current' | 'stale'>('unavailable')
+  const [skillCatalogError, setSkillCatalogError] = useState<string | null>(null)
   const [history, setHistory] = useState<WorkflowHistory>(() =>
     newHistory('sesión-sin-carpeta', snapshotFor(defaultWorkflow, initialPositions(defaultWorkflow)), 'Versión inicial'),
   )
@@ -288,6 +293,7 @@ function App() {
   const positionsRef = useRef(positions)
   const historyRef = useRef(history)
   const historyDirectoryRef = useRef<LocalDirectoryHandle | null>(null)
+  const skillCatalogRootRef = useRef<LocalDirectoryHandle | null>(null)
   const historyTimerRef = useRef<number | null>(null)
   const lastHistoryChangeRef = useRef(0)
 
@@ -692,6 +698,40 @@ function App() {
     [loadStoredHistory, replaceHistory, scheduleHistoryPersistence],
   )
 
+  const loadSkillCatalog = useCallback(async (root: LocalDirectoryHandle) => {
+    skillCatalogRootRef.current = root
+    try {
+      const workflowDirectory = await root.getDirectoryHandle(historyDirectoryName)
+      const rawCatalog = await readJsonFile(workflowDirectory, 'skill-catalog.json')
+      if (!rawCatalog) {
+        setSkillCatalog(null)
+        setSkillCatalogState('missing')
+        setSkillCatalogError(null)
+        return
+      }
+      const result = validateSkillCatalog(rawCatalog)
+      setSkillCatalog(result.catalog)
+      setSkillCatalogError(result.error)
+      setSkillCatalogState(result.catalog ? catalogFreshness(result.catalog) : 'invalid')
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') {
+        setSkillCatalog(null)
+        setSkillCatalogState('missing')
+        setSkillCatalogError(null)
+        return
+      }
+      setSkillCatalog(null)
+      setSkillCatalogState('invalid')
+      setSkillCatalogError(error instanceof Error ? error.message : 'No se ha podido leer el catálogo local.')
+    }
+  }, [])
+
+  const reloadSkillCatalog = useCallback(() => {
+    const root = skillCatalogRootRef.current
+    if (!root) return
+    void loadSkillCatalog(root)
+  }, [loadSkillCatalog])
+
   const openWorkflowFromFolder = useCallback(async () => {
     if (!window.showDirectoryPicker) return
     try {
@@ -701,6 +741,7 @@ function App() {
       const historyParent = await root.getDirectoryHandle(historyDirectoryName, { create: true })
       const historyDirectory = await historyParent.getDirectoryHandle(studioHistoryDirectoryName, { create: true })
       await loadWorkflowFile(await handle.getFile(), handle, historyDirectory, workflowPath)
+      await loadSkillCatalog(root)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setImportError(
@@ -709,9 +750,13 @@ function App() {
           : 'No se ha podido abrir la carpeta del proyecto.',
       )
     }
-  }, [expectedFileHint, loadWorkflowFile])
+  }, [expectedFileHint, loadSkillCatalog, loadWorkflowFile])
 
   const openWorkflowFile = useCallback(async () => {
+    skillCatalogRootRef.current = null
+    setSkillCatalog(null)
+    setSkillCatalogState('unavailable')
+    setSkillCatalogError(null)
     if (!window.showOpenFilePicker) {
       importInputRef.current?.click()
       return
@@ -952,7 +997,13 @@ function App() {
 
           {importError && <p className="import-error" role="alert">{importError}</p>}
 
-
+          <SkillCatalogPanel
+            catalog={skillCatalog}
+            state={skillCatalogState}
+            error={skillCatalogError}
+            onReload={reloadSkillCatalog}
+            canReload={Boolean(skillCatalogRootRef.current)}
+          />
 
           <Inspector
             workflow={workflow}
