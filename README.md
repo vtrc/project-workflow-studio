@@ -1,6 +1,8 @@
 # Project Workflow Studio
 
-Editor visual local para diseñar y validar recetas YAML de **Project Workflow**. Permite modelar etapas, transiciones, delegación y Skills, e importar o exportar el resultado como YAML.
+**Editor visual para diseñar, revisar y exportar recetas YAML de Project Workflow.**
+
+Project Workflow Studio ayuda a convertir un flujo de trabajo en un diagrama editable: etapas, transiciones, delegación, políticas de bloqueo y Skills. El resultado es una receta YAML que puede consumirse fuera del Studio.
 
 ## Inicio rápido
 
@@ -9,33 +11,57 @@ npm install
 npm run dev
 ```
 
-Abre la dirección que muestre Vite en el navegador. Para comprobar la aplicación antes de distribuirla:
+Vite mostrará la dirección local de la aplicación. Antes de compartir cambios, ejecuta:
 
 ```bash
 npm run lint
 npm run build
 ```
 
-## Qué hace
+## Flujo de trabajo
 
-- Crea y reorganiza etapas de un workflow en un diagrama visual.
-- Configura inputs, outputs, transiciones, política de bloqueo y delegación.
-- Asocia Skills a cada etapa y exporta una receta YAML.
-- Importa recetas YAML y señala problemas de estructura antes de exportarlas.
+1. Abre o crea una receta en el editor.
+2. Añade etapas y conéctalas mediante `on_success`.
+3. Configura entradas, salidas, delegación y las Skills de cada etapa.
+4. Revisa los avisos de validación.
+5. Exporta el YAML para usarlo en el entorno que ejecuta el workflow.
+
+## Capacidades
+
+- Diagrama interactivo de etapas y transiciones.
+- Edición de propiedades del workflow y de cada etapa.
+- Importación y exportación de YAML.
+- Validación de identificadores, transiciones y asociaciones de Skills.
+- Posicionamiento visual de los nodos del diagrama.
 
 ## Relación con Project Workflow
 
 | Componente | Responsabilidad |
 | --- | --- |
-| **Project Workflow Studio** | Interfaz visual para crear, editar y revisar recetas YAML. |
-| **Skill `project-workflow`** | Interpreta y ejecuta las recetas en el entorno que la tenga instalada. |
+| **Project Workflow Studio** | Crea, edita y valida recetas YAML desde una interfaz visual. |
+| **Skill `project-workflow`** | Interpreta y ejecuta esas recetas en el entorno donde esté instalada. |
 
-El Studio **no instala, distribuye ni ejecuta** la Skill. Es una aplicación independiente y no forma parte del framework instruction-only. La compatibilidad se basa en el formato de receta YAML, no en una dependencia de código entre ambos proyectos.
+El Studio **no ejecuta, instala ni distribuye** `project-workflow`. Ambos proyectos se integran mediante el formato de receta YAML, sin compartir código ni historial Git. El Studio tampoco forma parte del framework instruction-only.
 
-## Publicación futura
+## Desarrollo
 
-La URL pública todavía está por decidir. Cuando exista, deberá documentarse aquí junto con el destino de despliegue y la versión publicada. Mientras tanto, el Studio se usa localmente con Vite.
+| Comando | Uso |
+| --- | --- |
+| `npm run dev` | Inicia el entorno local de Vite. |
+| `npm run lint` | Ejecuta Oxlint. |
+| `npm run build` | Comprueba TypeScript y genera la compilación de producción. |
+| `npm run preview` | Sirve la última compilación localmente. |
+
+La aplicación está construida con React, TypeScript, Vite, React Flow y YAML. La lógica del formato y sus validaciones vive en `src/workflow.ts`; los tipos se definen en `src/types.ts`.
+
+## Skills del repositorio
+
+Las Skills versionadas para los agentes viven en `.agents/skills/`. La Skill `impeccable` se usa para trabajo de interfaz y debe revisarse antes de ejecutarla, ya que incluye scripts de automatización.
+
+## Publicación
+
+El repositorio se publica en [github.com/vtrc/project-workflow-studio](https://github.com/vtrc/project-workflow-studio). La URL de la aplicación desplegada todavía está por decidir.
 
 ## Límites del repositorio
 
-Este repositorio contiene solo la aplicación Studio. No modifica ni comparte historial con `/Users/victor/Documents/Codex/2026-09-04/realtime-voice-chat`, y no incluye credenciales, artefactos locales de workflows ni resultados de compilación.
+Este repositorio contiene solo el Studio. No modifica ni comparte historial con `realtime-voice-chat`. Nunca se versionan dependencias, compilaciones, configuraciones locales, credenciales ni artefactos generados en `.workflow/artifacts/`.
