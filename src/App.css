@@ -6,8 +6,7 @@
 .topbar {
   height: 64px;
   padding: 0 22px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 18px;
   background: var(--color-surface);
@@ -20,6 +19,7 @@
 }
 
 .brand {
+  flex: 0 0 auto;
   gap: 9px;
   color: var(--color-text-strong);
   font-weight: 720;
@@ -39,10 +39,21 @@
 .brand-subtitle { color: var(--color-text-subtle); font-weight: 520; }
 
 .workflow-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
   justify-content: center;
   gap: 9px;
   color: var(--color-text);
   font-size: 0.875rem;
+}
+
+.workflow-title strong {
+  min-width: 0;
+  max-width: min(260px, 24vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-status {
@@ -68,7 +79,7 @@
 
 .file-hint-copy { color: var(--color-text-muted); }
 
-.toolbar { justify-content: flex-end; gap: 6px; min-width: 0; flex-wrap: nowrap; white-space: nowrap; }
+.toolbar { flex: 0 0 auto; justify-content: flex-end; gap: 6px; min-width: 0; flex-wrap: nowrap; white-space: nowrap; }
 .toolbar-group { display: inline-flex; align-items: center; gap: 3px; padding-right: 8px; border-right: 1px solid var(--color-border); flex: 0 0 auto; }
 .toolbar-group-primary { padding-right: 0; border-right: 0; }
 .button-history { min-height: 32px; padding: 0 9px; color: var(--color-text-muted); font-size: 0.76rem; }
@@ -396,7 +407,7 @@
 }
 
 @media (max-width: 650px) {
-  .topbar { height: auto; min-height: 58px; grid-template-columns: 1fr; gap: 8px; padding: 10px 12px; }
+  .topbar { height: auto; min-height: 58px; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; }
   .brand { gap: 7px; font-size: 0.86rem; }
   .brand-mark { width: 28px; height: 28px; }
   .brand-subtitle, .workflow-title { display: none; }
@@ -483,3 +494,9 @@
 .advanced-section-content { display: grid; gap: 11px; padding-top: 14px; }
 .advanced-disclosure { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--color-border-subtle); border-bottom: 0; }
 .advanced-disclosure[open] summary { margin-bottom: 12px; }
+
+@media (max-width: 1080px) and (min-width: 651px) {
+  .topbar { height: auto; flex-wrap: wrap; padding-block: 12px; }
+  .workflow-title { order: 3; flex: 1 0 100%; justify-content: flex-start; }
+  .toolbar { margin-left: auto; }
+}
