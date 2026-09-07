@@ -1,9 +1,11 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import type { WorkflowStep } from '../types'
+import type { WorkflowRecipe, WorkflowStep } from '../types'
+import { resolveStep } from '../workflow'
 
 export interface WorkflowNodeData {
   [key: string]: unknown
   step: WorkflowStep
+  workflow: WorkflowRecipe
   index: number
   isSelected: boolean
   activeSourceHandle?: string
@@ -18,7 +20,8 @@ function conciseList(values: string[]): string {
 
 export function WorkflowNode({ data }: NodeProps) {
   const nodeData = data as WorkflowNodeData
-  const { step, index, isSelected, activeSourceHandle, activeTargetHandles } = nodeData
+  const { step, workflow, index, isSelected, activeSourceHandle, activeTargetHandles } = nodeData
+  const resolved = resolveStep(workflow, step)
   const targetClass = (handleId: string) =>
     `workflow-handle workflow-handle-target${activeTargetHandles.includes(handleId) ? ' is-active' : ''}`
   const sourceClass = (handleId: string) =>
@@ -34,7 +37,7 @@ export function WorkflowNode({ data }: NodeProps) {
         <span className="node-index">{index + 1}</span>
         <div>
           <h3>{step.id}</h3>
-          <p className="node-meta">{step.execution === 'parallel' ? 'Paralelo' : 'En orden'} · {step.delegation === 'subagent' ? 'Subagente' : 'Agente actual'}</p>
+          <p className="node-meta">{resolved.execution === 'parallel' ? 'Paralelo' : 'En orden'} · {resolved.delegation === 'subagent' ? 'Subagente' : 'Agente actual'}</p>
         </div>
       </div>
 
@@ -47,11 +50,11 @@ export function WorkflowNode({ data }: NodeProps) {
       <div className="node-io">
         <div>
           <span>RECIBE</span>
-          <strong title={step.inputs.join(', ')}>{conciseList(step.inputs)}</strong>
+          <strong title={resolved.inputs.join(', ')}>{conciseList(resolved.inputs)}</strong>
         </div>
         <div>
           <span>PRODUCE</span>
-          <strong title={step.outputs.join(', ')}>{conciseList(step.outputs)}</strong>
+          <strong title={resolved.outputs.join(', ')}>{conciseList(resolved.outputs)}</strong>
         </div>
       </div>
       <Handle className={sourceClass('top-source')} id="top-source" type="source" position={Position.Top} aria-label={`Salida superior de ${step.id}`} />

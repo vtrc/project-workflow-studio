@@ -1,17 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Copy, Info, Plus, Trash2, X } from 'lucide-react'
 import type {
-  CompletionMode,
-  DelegationMode,
-  ExecutionMode,
-  InvocationMode,
-  OnBlocked,
-  OnExistsMode,
   SkillBinding,
   SkillRole,
   WorkflowRecipe,
   WorkflowStep,
 } from '../types'
+import { orchestratorDefaults, resolveSkill, resolveStep } from '../workflow'
 
 interface InspectorProps {
   workflow: WorkflowRecipe
@@ -338,24 +333,6 @@ function FieldEffect({ children }: { children: string }) {
   return <p className="field-effect" aria-live="polite">{children}</p>
 }
 
-function describeHostIntent(value: string, kind: 'model' | 'reasoning') {
-  if (value === 'inherit') {
-    return kind === 'model'
-      ? 'No fija el modelo aquí; el cliente resolverá el valor heredado.'
-      : 'No fija el razonamiento aquí; el cliente resolverá el valor heredado.'
-  }
-
-  if (value === 'host_default') {
-    return kind === 'model'
-      ? 'Usará el modelo predeterminado del cliente.'
-      : 'Usará el razonamiento predeterminado del cliente.'
-  }
-
-  return value.trim()
-    ? `Solicita “${value}”; el cliente debe admitir ese valor.`
-    : 'Escribe inherit, host_default o un valor válido para el cliente.'
-}
-
 interface TokensFieldProps {
   label: string
   helper: string
@@ -417,340 +394,166 @@ function TokenField({ label, helper, values, help, emptyEffect, valuesEffect, on
   )
 }
 
-function StepInspector({
-  workflow,
-  step,
+const inheritedValue = '__inherited__'
+
+function InheritanceNote({ source }: { source: string }) {
+  return <p className="inheritance-note">Heredado de {source}</p>
+}
+
+function InheritedSelect<T extends string>({
+  id,
+  label,
+  help,
+  value,
+  effective,
+  source,
+  options,
   onChange,
-  onDuplicate,
-  onDelete,
 }: {
+  id: string
+  label: string
+  help: HelpContent
+  value: T | undefined
+  effective: T
+  source: string
+  options: { value: T; label: string }[]
+  onChange: (value: T | undefined) => void
+}) {
+  return (
+    <div className="field">
+      <FieldLabel htmlFor={id} label={label} help={help} />
+      <select id={id} value={value ?? inheritedValue} onChange={(event) => onChange(event.target.value === inheritedValue ? undefined : event.target.value as T)}>
+        <option value={inheritedValue}>Usar {source}: {options.find((option) => option.value === effective)?.label ?? effective}</option>
+        {options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+      </select>
+      {value === undefined ? <InheritanceNote source={source} /> : <FieldEffect>Configurado explícitamente en este nivel.</FieldEffect>}
+    </div>
+  )
+}
+
+function InheritedTextField({
+  id,
+  label,
+  help,
+  value,
+  effective,
+  source,
+  onChange,
+}: {
+  id: string
+  label: string
+  help: HelpContent
+  value: string | undefined
+  effective: string
+  source: string
+  onChange: (value: string | undefined) => void
+}) {
+  return (
+    <div className="field">
+      <FieldLabel htmlFor={id} label={label} help={help} />
+      <input id={id} value={value ?? ''} placeholder={`Heredado: ${effective}`} onChange={(event) => onChange(event.target.value.trim() ? event.target.value : undefined)} />
+      {value === undefined ? <InheritanceNote source={source} /> : <button className="link-button" type="button" onClick={() => onChange(undefined)}>Volver a heredar ({effective})</button>}
+    </div>
+  )
+}
+
+function StepInspector({ workflow, step, onChange, onDuplicate, onDelete }: {
   workflow: WorkflowRecipe
   step: WorkflowStep
   onChange: (update: (current: WorkflowStep) => WorkflowStep) => void
   onDuplicate: () => void
   onDelete: () => void
 }) {
-  const updateSkill = (index: number, patch: Partial<SkillBinding>) => {
-    onChange((current) => ({
-      ...current,
-      skills: current.skills.map((skill, skillIndex) =>
-        skillIndex === index ? { ...skill, ...patch } : skill,
-      ),
-    }))
-  }
+  const updateSkill = (index: number, patch: Partial<SkillBinding>) => onChange((current) => ({
+    ...current,
+    skills: current.skills.map((skill, skillIndex) => skillIndex === index ? { ...skill, ...patch } : skill),
+  }))
   const stepIndex = workflow.steps.findIndex((candidate) => candidate.id === step.id)
   const laterSteps = workflow.steps.slice(stepIndex + 1)
+  const resolved = resolveStep(workflow, step)
+  const rootDelegationSource = workflow.default_delegation === undefined ? 'el default del orquestador' : 'los valores del workflow'
+  const rootBlockedSource = workflow.default_on_blocked === undefined ? 'el default del orquestador' : 'los valores del workflow'
 
   return (
     <div className="inspector-form">
       <section className="field-group">
-        <div className="field-group-header"><h3>Identidad</h3></div>
+        <div className="field-group-header"><h3>Nombre de etapa</h3></div>
         <div className="field">
-          <FieldLabel htmlFor="step-id" label="Nombre de la etapa" help={fieldHelp.stepId} />
-          <input
-            id="step-id"
-            value={step.id}
-            onChange={(event) => onChange((current) => ({ ...current, id: event.target.value }))}
-          />
+          <FieldLabel htmlFor="step-id" label="Nombre" help={fieldHelp.stepId} />
+          <input id="step-id" value={step.id} onChange={(event) => onChange((current) => ({ ...current, id: event.target.value }))} />
           <FieldEffect>{step.id.trim() ? `La etapa se exportará con el identificador “${step.id}”.` : 'Escribe un identificador único para esta etapa.'}</FieldEffect>
         </div>
       </section>
 
       <section className="field-group">
-        <div className="field-group-header"><h3>Comportamiento</h3></div>
-        <div className="two-fields">
-          <div className="field">
-            <FieldLabel htmlFor="execution" label="Ejecución" help={fieldHelp.execution} />
-            <select
-              id="execution"
-              value={step.execution}
-              onChange={(event) => onChange((current) => ({ ...current, execution: event.target.value as ExecutionMode }))}
-            >
-              <option value="sequential">En orden</option>
-              <option value="parallel">En paralelo</option>
-            </select>
-            <FieldEffect>{step.execution === 'sequential' ? 'Las Skills se aplicarán una detrás de otra.' : 'Las Skills podrán iniciarse a la vez si el cliente lo permite.'}</FieldEffect>
-          </div>
-          <div className="field">
-            <FieldLabel htmlFor="completion" label="Finaliza cuando" help={fieldHelp.completion} />
-            <select
-              id="completion"
-              value={step.completion}
-              onChange={(event) => onChange((current) => ({ ...current, completion: event.target.value as CompletionMode }))}
-            >
-              <option value="all_required">Terminan todas</option>
-              <option value="any_success">Termina una correctamente</option>
-            </select>
-            <FieldEffect>{step.completion === 'all_required' ? 'No avanzará hasta que terminen todas las Skills obligatorias.' : 'Avanzará cuando una Skill obligatoria termine correctamente.'}</FieldEffect>
-          </div>
-        </div>
-        <div className="two-fields">
-          <div className="field">
-            <FieldLabel htmlFor="delegation" label="Quién la realiza" help={fieldHelp.delegation} />
-            <select
-              id="delegation"
-              value={step.delegation}
-              onChange={(event) => onChange((current) => ({ ...current, delegation: event.target.value as DelegationMode }))}
-            >
-              <option value="inline">Agente actual</option>
-              <option value="subagent">Subagente</option>
-              <option value="auto">Decide el cliente</option>
-            </select>
-            <FieldEffect>{step.delegation === 'inline' ? 'La realizará el agente actual.' : step.delegation === 'subagent' ? 'Se pedirá delegarla en un subagente.' : 'El cliente decidirá cómo realizarla.'}</FieldEffect>
-          </div>
-          <div className="field">
-            <FieldLabel htmlFor="blocked" label="Si se bloquea" help={fieldHelp.onBlocked} />
-            <select
-              id="blocked"
-              value={step.on_blocked}
-              onChange={(event) => onChange((current) => ({ ...current, on_blocked: event.target.value as OnBlocked }))}
-            >
-              <option value="ask_user">Pide ayuda</option>
-              <option value="stop">Detiene el flujo</option>
-            </select>
-            <FieldEffect>{step.on_blocked === 'ask_user' ? 'Guardará el estado y pedirá lo que falta.' : 'Detendrá el workflow cuando no pueda continuar.'}</FieldEffect>
-          </div>
-        </div>
-      </section>
-
-      <section className="field-group">
-        <div className="field-group-header"><h3>Datos</h3></div>
-        <TokenField
-          label="Entradas"
-          helper="Resultados que esta etapa necesita recibir."
-          help={fieldHelp.inputs}
-          values={step.inputs}
-          emptyEffect="Esta etapa no necesita artefactos de etapas anteriores."
-          valuesEffect={(values) => `Usará ${values.length === 1 ? 'el artefacto' : 'los artefactos'} ${values.map((value) => `“${value}”`).join(', ')}.`}
-          onChange={(inputs) => onChange((current) => ({ ...current, inputs }))}
-        />
-        <TokenField
-          label="Salidas"
-          helper="Resultados que esta etapa deja preparados para las siguientes."
-          help={fieldHelp.outputs}
-          values={step.outputs}
-          emptyEffect="Esta etapa no declara artefactos de salida."
-          valuesEffect={(values) => `Declarará ${values.length === 1 ? 'el artefacto' : 'los artefactos'} ${values.map((value) => `“${value}”`).join(', ')} como salida.`}
-          onChange={(outputs) => onChange((current) => ({ ...current, outputs }))}
-        />
-      </section>
-
-      <section className="field-group">
         <div className="field-group-header">
           <h3>Skills</h3>
-          <button
-            className="button button-secondary button-small"
-            type="button"
-            onClick={() => onChange((current) => ({
-              ...current,
-              skills: [...current.skills, { name: 'new-skill', role: 'primary', required: true, invocation: 'compose' }],
-            }))}
-          >
+          <button className="button button-secondary button-small" type="button" onClick={() => onChange((current) => ({ ...current, skills: [...current.skills, { name: 'new-skill', role: 'primary' }] }))}>
             <Plus size={14} aria-hidden="true" /> Añadir
           </button>
         </div>
-        <p className="field-helper">Las Skills ya existen; aquí solo indicas cuáles deben participar en esta etapa.</p>
-        {step.skills.length === 0 ? (
-          <div className="empty-skills">Aún no has añadido ninguna Skill a esta etapa.</div>
-        ) : (
-          step.skills.map((skill, index) => (
+        <p className="field-helper">Indica las Skills que participan en esta etapa. Sus opciones poco frecuentes están disponibles al desplegar cada una.</p>
+        {step.skills.length === 0 ? <div className="empty-skills">Aún no has añadido ninguna Skill a esta etapa.</div> : step.skills.map((skill, index) => {
+          const skillResolved = resolveSkill(workflow, step, skill)
+          const invocationSource = workflow.default_invocation === undefined ? 'el default del orquestador' : 'los valores del workflow'
+          return (
             <div className="skill-row" key={`${skill.name}-${index}`}>
-              <div className="skill-row-top">
-                <span>Skill {index + 1}</span>
-                <button
-                  className="icon-button remove-skill"
-                  type="button"
-                  aria-label={`Eliminar Skill ${skill.name}`}
-                  onClick={() => onChange((current) => ({
-                    ...current,
-                    skills: current.skills.filter((_, skillIndex) => skillIndex !== index),
-                  }))}
-                >
-                  <Trash2 size={14} aria-hidden="true" />
-                </button>
-              </div>
-              <div className="field">
-                <FieldLabel htmlFor={`skill-name-${index}`} label="Nombre" help={fieldHelp.skillName} />
-                <input
-                  id={`skill-name-${index}`}
-                  value={skill.name}
-                  onChange={(event) => updateSkill(index, { name: event.target.value })}
-                />
-                <FieldEffect>{skill.name.trim() ? `Buscará la Skill local “${skill.name}”.` : 'Escribe el nombre exacto de una Skill local disponible.'}</FieldEffect>
-              </div>
-              <div className="field">
-                <FieldLabel htmlFor={`skill-role-${index}`} label="Papel" help={fieldHelp.skillRole} />
-                <select
-                  id={`skill-role-${index}`}
-                  value={skill.role}
-                  onChange={(event) => updateSkill(index, { role: event.target.value as SkillRole })}
-                >
-                  <option value="primary">Principal</option>
-                  <option value="supporting">Apoyo</option>
-                  <option value="review">Revisión</option>
-                  <option value="fallback">Respaldo</option>
-                </select>
-                <FieldEffect>{skill.role === 'primary' ? 'Realizará el trabajo principal de esta etapa.' : skill.role === 'supporting' ? 'Aportará trabajo de apoyo al resultado principal.' : skill.role === 'review' ? 'Revisará el resultado de las demás Skills.' : 'Solo podrá usarse como alternativa de respaldo en una etapa en orden.'}</FieldEffect>
-              </div>
-              <div className="field">
-                <FieldLabel htmlFor={`skill-invocation-${index}`} label="Aplicación" help={fieldHelp.skillInvocation} />
-                <select
-                  id={`skill-invocation-${index}`}
-                  value={skill.invocation ?? workflow.default_invocation}
-                  onChange={(event) => updateSkill(index, { invocation: event.target.value as InvocationMode })}
-                >
-                  <option value="compose">Componer en el workflow</option>
-                  <option value="user_explicit">Requiere al usuario</option>
-                  <option value="host_permitted">Si el cliente lo permite</option>
-                </select>
-                <FieldEffect>{(skill.invocation ?? workflow.default_invocation) === 'compose' ? 'El workflow aplicará sus instrucciones en el contexto activo.' : (skill.invocation ?? workflow.default_invocation) === 'user_explicit' ? 'El workflow se detendrá hasta que el usuario la invoque.' : 'Solo se aplicará si el cliente confirma que admite esta invocación.'}</FieldEffect>
-              </div>
-              <div className="field">
-                <FieldLabel htmlFor={`skill-on-exists-${index}`} label="Si ya existe el archivo" help={fieldHelp.onExists} />
-                <select
-                  id={`skill-on-exists-${index}`}
-                  value={skill.on_exists ?? 'fail'}
-                  onChange={(event) => updateSkill(index, { on_exists: event.target.value as OnExistsMode })}
-                >
-                  <option value="fail">Falla</option>
-                  <option value="overwrite">Sobrescribe</option>
-                  <option value="version">Crea una versión</option>
-                </select>
-                <FieldEffect>{(skill.on_exists ?? 'fail') === 'fail' ? 'No sobrescribirá un archivo existente.' : (skill.on_exists ?? 'fail') === 'overwrite' ? 'Sobrescribirá solo un artefacto que esta Skill posea.' : 'Registrará una ruta distinta para conservar la versión anterior.'}</FieldEffect>
-              </div>
+              <div className="skill-row-top"><span>Skill {index + 1}</span><button className="icon-button remove-skill" type="button" aria-label={`Eliminar Skill ${skill.name}`} onClick={() => onChange((current) => ({ ...current, skills: current.skills.filter((_, skillIndex) => skillIndex !== index) }))}><Trash2 size={14} aria-hidden="true" /></button></div>
+              <div className="field"><FieldLabel htmlFor={`skill-name-${index}`} label="Nombre" help={fieldHelp.skillName} /><input id={`skill-name-${index}`} value={skill.name} onChange={(event) => updateSkill(index, { name: event.target.value })} /><FieldEffect>{skill.name.trim() ? `Buscará la Skill local “${skill.name}”.` : 'Escribe el nombre exacto de una Skill local disponible.'}</FieldEffect></div>
+              <div className="field"><FieldLabel htmlFor={`skill-role-${index}`} label="Papel" help={fieldHelp.skillRole} /><select id={`skill-role-${index}`} value={skill.role} onChange={(event) => updateSkill(index, { role: event.target.value as SkillRole })}><option value="primary">Principal</option><option value="supporting">Apoyo</option><option value="review">Revisión</option><option value="fallback">Respaldo</option></select></div>
+              <details className="advanced-disclosure">
+                <summary>Opciones de esta Skill</summary>
+                <InheritedSelect id={`skill-required-${index}`} label="Participación" help={fieldHelp.skillRole} value={skill.required === undefined ? undefined : String(skill.required) as 'true' | 'false'} effective={String(skillResolved.required) as 'true' | 'false'} source="el default del orquestador" options={[{ value: 'true', label: 'Obligatoria' }, { value: 'false', label: 'Opcional' }]} onChange={(value) => updateSkill(index, { required: value === undefined ? undefined : value === 'true' })} />
+                <InheritedSelect id={`skill-invocation-${index}`} label="Aplicación" help={fieldHelp.skillInvocation} value={skill.invocation} effective={skillResolved.invocation} source={invocationSource} options={[{ value: 'compose', label: 'Componer en el workflow' }, { value: 'user_explicit', label: 'Requiere al usuario' }, { value: 'host_permitted', label: 'Si el cliente lo permite' }]} onChange={(invocation) => updateSkill(index, { invocation })} />
+                <InheritedTextField id={`skill-model-${index}`} label="Modelo" help={fieldHelp.model} value={skill.model} effective={skillResolved.model} source="la etapa o el workflow" onChange={(model) => updateSkill(index, { model })} />
+                <InheritedTextField id={`skill-reasoning-${index}`} label="Razonamiento" help={fieldHelp.reasoning} value={skill.reasoning_effort} effective={skillResolved.reasoning_effort} source="la etapa o el workflow" onChange={(reasoning_effort) => updateSkill(index, { reasoning_effort })} />
+                <div className="two-fields"><div className="field"><FieldLabel htmlFor={`skill-artifact-${index}`} label="Artefacto" help={fieldHelp.outputs} /><input id={`skill-artifact-${index}`} value={skill.artifact ?? ''} onChange={(event) => updateSkill(index, { artifact: event.target.value.trim() || undefined })} /></div><div className="field"><FieldLabel htmlFor={`skill-output-${index}`} label="Archivo de salida" help={fieldHelp.artifactRoot} /><input id={`skill-output-${index}`} value={skill.output_file ?? ''} onChange={(event) => updateSkill(index, { output_file: event.target.value.trim() || undefined })} /></div></div>
+                <InheritedSelect id={`skill-on-exists-${index}`} label="Si ya existe el archivo" help={fieldHelp.onExists} value={skill.on_exists} effective={skillResolved.on_exists} source="el default del orquestador" options={[{ value: 'fail', label: 'Falla' }, { value: 'overwrite', label: 'Sobrescribe' }, { value: 'version', label: 'Crea una versión' }]} onChange={(on_exists) => updateSkill(index, { on_exists })} />
+              </details>
             </div>
-          ))
-        )}
+          )
+        })}
       </section>
 
       <section className="field-group">
-        <div className="field-group-header"><h3>Siguiente etapa</h3></div>
-        <div className="field">
-          <FieldLabel htmlFor="next-step" label="Cuando termine correctamente" help={fieldHelp.nextStep} />
-          <select
-            id="next-step"
-            value={step.on_success}
-            onChange={(event) => onChange((current) => ({ ...current, on_success: event.target.value }))}
-          >
-            <option value="complete">Completar el workflow</option>
-            {laterSteps.map((candidate) => (
-              <option value={candidate.id} key={candidate.id}>{candidate.id}</option>
-            ))}
-          </select>
-          <FieldEffect>{step.on_success === 'complete' ? 'Esta etapa terminará el workflow.' : `Después continuará en la etapa “${step.on_success}”.`}</FieldEffect>
+        <div className="field-group-header"><h3>Comportamiento</h3></div>
+        <div className="two-fields">
+          <InheritedSelect id="execution" label="Ejecución" help={fieldHelp.execution} value={step.execution} effective={resolved.execution} source="el default del orquestador" options={[{ value: 'sequential', label: 'En orden' }, { value: 'parallel', label: 'En paralelo' }]} onChange={(execution) => onChange((current) => ({ ...current, execution }))} />
+          <InheritedSelect id="completion" label="Finaliza cuando" help={fieldHelp.completion} value={step.completion} effective={resolved.completion} source="el default del orquestador" options={[{ value: 'all_required', label: 'Terminan todas' }, { value: 'any_success', label: 'Termina una correctamente' }]} onChange={(completion) => onChange((current) => ({ ...current, completion }))} />
         </div>
+        <div className="field"><FieldLabel htmlFor="next-step" label="Siguiente etapa" help={fieldHelp.nextStep} /><select id="next-step" value={step.on_success} onChange={(event) => onChange((current) => ({ ...current, on_success: event.target.value }))}><option value="complete">Completar el workflow</option>{laterSteps.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.id}</option>)}</select><FieldEffect>{step.on_success === 'complete' ? 'Esta etapa terminará el workflow.' : `Después continuará en la etapa “${step.on_success}”.`}</FieldEffect></div>
       </section>
 
-      <div className="inspector-actions">
-        <button className="button button-secondary" type="button" onClick={onDuplicate}>
-          <Copy size={15} aria-hidden="true" /> Duplicar
-        </button>
-        <button className="button button-danger" type="button" onClick={onDelete}>
-          <Trash2 size={15} aria-hidden="true" /> Eliminar
-        </button>
-      </div>
+      <details className="advanced-section">
+        <summary>Ajustes avanzados</summary>
+        <div className="advanced-section-content">
+          <div className="two-fields">
+            <InheritedSelect id="delegation" label="Quién la realiza" help={fieldHelp.delegation} value={step.delegation} effective={resolved.delegation} source={rootDelegationSource} options={[{ value: 'inline', label: 'Agente actual' }, { value: 'subagent', label: 'Subagente' }, { value: 'auto', label: 'Decide el cliente' }]} onChange={(delegation) => onChange((current) => ({ ...current, delegation }))} />
+            <InheritedSelect id="blocked" label="Si se bloquea" help={fieldHelp.onBlocked} value={step.on_blocked} effective={resolved.on_blocked} source={rootBlockedSource} options={[{ value: 'ask_user', label: 'Pide ayuda' }, { value: 'stop', label: 'Detiene el flujo' }]} onChange={(on_blocked) => onChange((current) => ({ ...current, on_blocked }))} />
+          </div>
+          <InheritedTextField id="step-model" label="Modelo" help={fieldHelp.model} value={step.model} effective={resolved.model} source={workflow.model === undefined ? 'el default del orquestador' : 'los valores del workflow'} onChange={(model) => onChange((current) => ({ ...current, model }))} />
+          <InheritedTextField id="step-reasoning" label="Razonamiento" help={fieldHelp.reasoning} value={step.reasoning_effort} effective={resolved.reasoning_effort} source={workflow.reasoning_effort === undefined ? 'el default del orquestador' : 'los valores del workflow'} onChange={(reasoning_effort) => onChange((current) => ({ ...current, reasoning_effort }))} />
+          <TokenField label="Entradas" helper="Resultados que esta etapa necesita recibir." help={fieldHelp.inputs} values={resolved.inputs} emptyEffect="Esta etapa no necesita artefactos de etapas anteriores." valuesEffect={(values) => `Usará ${values.length === 1 ? 'el artefacto' : 'los artefactos'} ${values.map((value) => `“${value}”`).join(', ')}.`} onChange={(inputs) => onChange((current) => ({ ...current, inputs }))} />
+          <TokenField label="Salidas" helper="Resultados que esta etapa deja preparados para las siguientes." help={fieldHelp.outputs} values={resolved.outputs} emptyEffect="Esta etapa no declara artefactos de salida." valuesEffect={(values) => `Declarará ${values.length === 1 ? 'el artefacto' : 'los artefactos'} ${values.map((value) => `“${value}”`).join(', ')} como salida.`} onChange={(outputs) => onChange((current) => ({ ...current, outputs }))} />
+        </div>
+      </details>
+
+      <div className="inspector-actions"><button className="button button-secondary" type="button" onClick={onDuplicate}><Copy size={15} aria-hidden="true" /> Duplicar</button><button className="button button-danger" type="button" onClick={onDelete}><Trash2 size={15} aria-hidden="true" /> Eliminar</button></div>
     </div>
   )
 }
 
-function WorkflowInspector({ workflow, validationIssues, onChange }: {
-  workflow: WorkflowRecipe
-  validationIssues: string[]
-  onChange: (change: Partial<WorkflowRecipe>) => void
-}) {
+function WorkflowInspector({ workflow, validationIssues, onChange }: { workflow: WorkflowRecipe; validationIssues: string[]; onChange: (change: Partial<WorkflowRecipe>) => void }) {
   return (
     <div className="inspector-form">
-      <section className="field-group">
-        <div className="field-group-header"><h3>Workflow</h3></div>
-        <div className="field">
-          <FieldLabel htmlFor="workflow-id" label="Nombre" help={fieldHelp.workflowId} />
-          <input id="workflow-id" value={workflow.id} onChange={(event) => onChange({ id: event.target.value })} />
-          <FieldEffect>{workflow.id.trim() ? `El YAML se exportará con el identificador “${workflow.id}”.` : 'Escribe un identificador estable para el workflow.'}</FieldEffect>
-        </div>
-        <div className="field">
-          <FieldLabel htmlFor="artifact-root" label="Carpeta de resultados" help={fieldHelp.artifactRoot} />
-          <input id="artifact-root" value={workflow.artifact_root} onChange={(event) => onChange({ artifact_root: event.target.value })} />
-          <FieldEffect>{workflow.artifact_root.trim() ? `Los artefactos se esperan bajo “${workflow.artifact_root}”.` : 'Indica una ruta relativa al proyecto para los artefactos.'}</FieldEffect>
-        </div>
-      </section>
-
-      <section className="field-group">
-        <div className="field-group-header"><h3>Valores por defecto</h3></div>
-        <div className="field">
-          <FieldLabel htmlFor="workflow-model" label="Modelo" help={fieldHelp.model} />
-          <input id="workflow-model" value={workflow.model} onChange={(event) => onChange({ model: event.target.value })} />
-          <FieldEffect>{describeHostIntent(workflow.model, 'model')}</FieldEffect>
-        </div>
-        <div className="field">
-          <FieldLabel htmlFor="reasoning-effort" label="Razonamiento" help={fieldHelp.reasoning} />
-          <input id="reasoning-effort" value={workflow.reasoning_effort} onChange={(event) => onChange({ reasoning_effort: event.target.value })} />
-          <FieldEffect>{describeHostIntent(workflow.reasoning_effort, 'reasoning')}</FieldEffect>
-        </div>
-        <div className="two-fields">
-          <div className="field">
-            <FieldLabel htmlFor="default-delegation" label="Delegación" help={fieldHelp.defaultDelegation} />
-            <select id="default-delegation" value={workflow.default_delegation} onChange={(event) => onChange({ default_delegation: event.target.value as DelegationMode })}>
-              <option value="inline">Agente actual</option>
-              <option value="subagent">Subagente</option>
-              <option value="auto">Decide el cliente</option>
-            </select>
-            <FieldEffect>{workflow.default_delegation === 'inline' ? 'Las etapas sin ajuste propio las realizará el agente actual.' : workflow.default_delegation === 'subagent' ? 'Las etapas sin ajuste propio pedirán un subagente.' : 'El cliente decidirá la delegación de cada etapa sin ajuste propio.'}</FieldEffect>
-          </div>
-          <div className="field">
-            <FieldLabel htmlFor="default-blocked" label="Si se bloquea" help={fieldHelp.onBlocked} />
-            <select id="default-blocked" value={workflow.default_on_blocked} onChange={(event) => onChange({ default_on_blocked: event.target.value as OnBlocked })}>
-              <option value="ask_user">Pide ayuda</option>
-              <option value="stop">Detiene el flujo</option>
-            </select>
-            <FieldEffect>{workflow.default_on_blocked === 'ask_user' ? 'Las etapas sin ajuste propio pedirán al usuario lo que falte.' : 'Las etapas sin ajuste propio detendrán el workflow.'}</FieldEffect>
-          </div>
-        </div>
-        <div className="field">
-          <FieldLabel htmlFor="default-invocation" label="Aplicación de Skills" help={fieldHelp.defaultInvocation} />
-          <select id="default-invocation" value={workflow.default_invocation} onChange={(event) => onChange({ default_invocation: event.target.value as InvocationMode })}>
-            <option value="compose">Componer en el workflow</option>
-            <option value="user_explicit">Requiere al usuario</option>
-            <option value="host_permitted">Si el cliente lo permite</option>
-          </select>
-          <FieldEffect>{workflow.default_invocation === 'compose' ? 'Las Skills sin ajuste propio se aplicarán dentro del workflow.' : workflow.default_invocation === 'user_explicit' ? 'Las Skills sin ajuste propio requerirán una acción del usuario.' : 'Las Skills sin ajuste propio dependerán de que el cliente admita la invocación.'}</FieldEffect>
-        </div>
-      </section>
-
-      <section className="field-group">
-        <div className="field-group-header"><h3>Estado</h3></div>
-        <div className="workflow-settings-note">
-          Al hacer clic en una etapa del diagrama volverás a editar sus opciones. El YAML sigue siendo el formato de origen: exporta el archivo cuando termines.
-        </div>
-        {validationIssues.length > 0 && (
-          <ul className="validation-list" aria-label="Avisos de validación">
-            {validationIssues.map((issue) => <li key={issue}>• {issue}</li>)}
-          </ul>
-        )}
-      </section>
+      <section className="field-group"><div className="field-group-header"><h3>Workflow</h3></div><div className="field"><FieldLabel htmlFor="workflow-id" label="Nombre" help={fieldHelp.workflowId} /><input id="workflow-id" value={workflow.id} onChange={(event) => onChange({ id: event.target.value })} /></div><div className="field"><FieldLabel htmlFor="artifact-root" label="Carpeta de resultados" help={fieldHelp.artifactRoot} /><input id="artifact-root" value={workflow.artifact_root} onChange={(event) => onChange({ artifact_root: event.target.value })} /></div></section>
+      <details className="advanced-section"><summary>Valores por defecto del workflow</summary><div className="advanced-section-content"><InheritedTextField id="workflow-model" label="Modelo" help={fieldHelp.model} value={workflow.model} effective={orchestratorDefaults.model} source="el default del orquestador" onChange={(model) => onChange({ model })} /><InheritedTextField id="reasoning-effort" label="Razonamiento" help={fieldHelp.reasoning} value={workflow.reasoning_effort} effective={orchestratorDefaults.reasoning_effort} source="el default del orquestador" onChange={(reasoning_effort) => onChange({ reasoning_effort })} /><InheritedSelect id="default-delegation" label="Delegación" help={fieldHelp.defaultDelegation} value={workflow.default_delegation} effective={orchestratorDefaults.delegation} source="el default del orquestador" options={[{ value: 'inline', label: 'Agente actual' }, { value: 'subagent', label: 'Subagente' }, { value: 'auto', label: 'Decide el cliente' }]} onChange={(default_delegation) => onChange({ default_delegation })} /><InheritedSelect id="default-blocked" label="Si se bloquea" help={fieldHelp.onBlocked} value={workflow.default_on_blocked} effective={orchestratorDefaults.on_blocked} source="el default del orquestador" options={[{ value: 'ask_user', label: 'Pide ayuda' }, { value: 'stop', label: 'Detiene el flujo' }]} onChange={(default_on_blocked) => onChange({ default_on_blocked })} /><InheritedSelect id="default-invocation" label="Aplicación de Skills" help={fieldHelp.defaultInvocation} value={workflow.default_invocation} effective={orchestratorDefaults.invocation} source="el default del orquestador" options={[{ value: 'compose', label: 'Componer en el workflow' }, { value: 'user_explicit', label: 'Requiere al usuario' }, { value: 'host_permitted', label: 'Si el cliente lo permite' }]} onChange={(default_invocation) => onChange({ default_invocation })} /></div></details>
+      <section className="field-group"><div className="field-group-header"><h3>Estado</h3></div><div className="workflow-settings-note">El YAML sigue siendo el formato de origen: los valores heredados no se escribirán hasta que los configures explícitamente.</div>{validationIssues.length > 0 && <ul className="validation-list" aria-label="Avisos de validación">{validationIssues.map((issue) => <li key={issue}>• {issue}</li>)}</ul>}</section>
     </div>
   )
 }
 
-export function Inspector({
-  workflow,
-  selectedStep,
-  validationIssues,
-  onWorkflowChange,
-  onStepChange,
-  onDuplicateStep,
-  onDeleteStep,
-}: InspectorProps) {
-  if (!selectedStep) {
-    return <WorkflowInspector workflow={workflow} validationIssues={validationIssues} onChange={onWorkflowChange} />
-  }
-
-  return (
-    <StepInspector
-      workflow={workflow}
-      step={selectedStep}
-      onChange={(update) => onStepChange(selectedStep.id, update)}
-      onDuplicate={() => onDuplicateStep(selectedStep.id)}
-      onDelete={() => onDeleteStep(selectedStep.id)}
-    />
-  )
+export function Inspector({ workflow, selectedStep, validationIssues, onWorkflowChange, onStepChange, onDuplicateStep, onDeleteStep }: InspectorProps) {
+  if (!selectedStep) return <WorkflowInspector workflow={workflow} validationIssues={validationIssues} onChange={onWorkflowChange} />
+  return <StepInspector workflow={workflow} step={selectedStep} onChange={(update) => onStepChange(selectedStep.id, update)} onDuplicate={() => onDuplicateStep(selectedStep.id)} onDelete={() => onDeleteStep(selectedStep.id)} />
 }

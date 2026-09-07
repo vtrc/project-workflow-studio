@@ -18,25 +18,28 @@ export interface SkillBinding {
   on_exists?: OnExistsMode
 }
 
+/** Raw YAML shape. Optional properties stay absent until a person overrides a default. */
 export interface WorkflowStep {
   id: string
-  execution: ExecutionMode
-  completion: CompletionMode
-  delegation: DelegationMode
-  inputs: string[]
-  outputs: string[]
+  execution?: ExecutionMode
+  completion?: CompletionMode
+  model?: string
+  reasoning_effort?: string
+  delegation?: DelegationMode
+  inputs?: string[]
+  outputs?: string[]
   on_success: string
-  on_blocked: OnBlocked
+  on_blocked?: OnBlocked
   skills: SkillBinding[]
 }
 
 export interface WorkflowRecipe {
   id: string
   artifact_root: string
-  default_delegation: DelegationMode
-  default_on_blocked: OnBlocked
-  default_invocation: InvocationMode
-  model: string
-  reasoning_effort: string
+  default_delegation?: DelegationMode
+  default_on_blocked?: OnBlocked
+  default_invocation?: InvocationMode
+  model?: string
+  reasoning_effort?: string
   steps: WorkflowStep[]
 }

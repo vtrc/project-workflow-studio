@@ -14,12 +14,10 @@ import {
 import '@xyflow/react/dist/style.css'
 import {
   Check,
-  ChevronDown,
   Download,
   FileOutput,
   FolderOpen,
   History,
-  LaptopMinimal,
   Moon,
   Plus,
   Redo2,
@@ -93,17 +91,18 @@ declare global {
 
 const nodeTypes = { workflowStep: WorkflowNode }
 const themeStorageKey = 'project-workflow-studio-theme'
-const themeOptions = [
-  { value: 'light', label: 'Claro', icon: SunMedium },
-  { value: 'dark', label: 'Oscuro', icon: Moon },
-  { value: 'system', label: 'Sistema', icon: LaptopMinimal },
-] as const
 
-type ThemeMode = (typeof themeOptions)[number]['value']
+type ThemeMode = 'light' | 'dark' | 'system'
 
 function isThemeMode(value: string | null): value is ThemeMode {
   return value === 'light' || value === 'dark' || value === 'system'
 }
+
+function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
+  if (theme !== 'system') return theme
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 
 const nodeWidth = 254
 const estimatedNodeHeight = 160
@@ -280,11 +279,9 @@ function App() {
     const stored = window.localStorage.getItem(themeStorageKey)
     return isThemeMode(stored) ? stored : 'system'
   })
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
   const historyCloseRef = useRef<HTMLButtonElement>(null)
-  const themeMenuRef = useRef<HTMLDivElement>(null)
   const themeTriggerRef = useRef<HTMLButtonElement>(null)
   const flowInstanceRef = useRef<ReactFlowInstance<Node<WorkflowNodeData>, Edge> | null>(null)
   const workflowRef = useRef(workflow)
@@ -303,17 +300,32 @@ function App() {
 
   useEffect(() => {
     const root = document.documentElement
+    const resolvedTheme = getResolvedTheme(theme)
+    root.dataset.theme = resolvedTheme
+    root.classList.toggle('theme-light', resolvedTheme === 'light')
+    root.classList.toggle('theme-dark', resolvedTheme === 'dark')
+    root.classList.remove('theme-system')
     if (theme === 'system') {
-      delete root.dataset.theme
-      root.classList.add('theme-system')
-      root.classList.remove('theme-light', 'theme-dark')
+      window.localStorage.removeItem(themeStorageKey)
     } else {
-      root.dataset.theme = theme
-      root.classList.toggle('theme-light', theme === 'light')
-      root.classList.toggle('theme-dark', theme === 'dark')
-      root.classList.remove('theme-system')
+      window.localStorage.setItem(themeStorageKey, theme)
     }
-    window.localStorage.setItem(themeStorageKey, theme)
+  }, [theme])
+
+  useEffect(() => {
+    if (theme !== 'system') return
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const syncSystemTheme = () => {
+      const root = document.documentElement
+      const resolvedTheme = mediaQuery.matches ? 'dark' : 'light'
+      root.dataset.theme = resolvedTheme
+      root.classList.toggle('theme-light', resolvedTheme === 'light')
+      root.classList.toggle('theme-dark', resolvedTheme === 'dark')
+    }
+
+    mediaQuery.addEventListener?.('change', syncSystemTheme)
+    return () => mediaQuery.removeEventListener?.('change', syncSystemTheme)
   }, [theme])
 
   const closeHistory = useCallback(() => {
@@ -332,34 +344,11 @@ function App() {
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [closeHistory, isHistoryOpen])
 
-  useEffect(() => {
-    if (!isThemeMenuOpen) return
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsThemeMenuOpen(false)
-        window.setTimeout(() => themeTriggerRef.current?.focus(), 0)
-      }
-    }
-    const closeOnPointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof window.Node) || !themeMenuRef.current?.contains(target)) {
-        setIsThemeMenuOpen(false)
-      }
-    }
-
-    window.addEventListener('keydown', closeOnEscape)
-    window.addEventListener('pointerdown', closeOnPointerDown)
-    return () => {
-      window.removeEventListener('keydown', closeOnEscape)
-      window.removeEventListener('pointerdown', closeOnPointerDown)
-    }
-  }, [isThemeMenuOpen])
-
   const selectedStep =
     workflow.steps.find((step) => step.id === selectedStepId) ?? null
   const validationIssues = useMemo(() => validateWorkflow(workflow), [workflow])
   const serializedYaml = useMemo(() => stringify(workflow), [workflow])
+  const resolvedTheme = useMemo(() => getResolvedTheme(theme), [theme])
 
   const nodes = useMemo<Node<WorkflowNodeData>[]>(
     () =>
@@ -369,6 +358,7 @@ function App() {
         position: positions[step.id] ?? { x: index * 356, y: 160 },
         data: {
           step,
+          workflow,
           isSelected: step.id === selectedStepId,
           index,
           activeSourceHandle: step.on_success && step.on_success !== 'complete'
@@ -385,7 +375,7 @@ function App() {
             ).target}-target`),
         },
       })),
-    [positions, selectedStepId, workflow.steps],
+    [positions, selectedStepId, workflow],
   )
 
   const edges = useMemo<Edge[]>(
@@ -418,7 +408,7 @@ function App() {
           },
         ]
       }),
-    [positions, selectedStepId, workflow.steps],
+    [positions, selectedStepId, workflow],
   )
 
   const fitDiagram = useCallback(() => {
@@ -555,7 +545,7 @@ function App() {
       const copy: WorkflowStep = {
         ...source,
         id,
-        outputs: source.outputs.map((output) => `${output}-copy`),
+        outputs: source.outputs?.map((output) => `${output}-copy`),
         skills: source.skills.map((skill) => ({
           ...skill,
           artifact: skill.artifact ? `${skill.artifact}-copy` : undefined,
@@ -851,47 +841,26 @@ function App() {
           >
             <History size={16} aria-hidden="true" /> Historial
           </button>
-          <div className="toolbar-group toolbar-group-theme" ref={themeMenuRef} aria-label="Tema">
+          <div className="toolbar-group toolbar-group-theme" aria-label="Tema">
             <button
               ref={themeTriggerRef}
-              className="button button-secondary button-theme"
+              className="button button-secondary button-theme-switch"
               type="button"
-              onClick={() => setIsThemeMenuOpen((current) => !current)}
-              aria-haspopup="menu"
-              aria-expanded={isThemeMenuOpen}
-              aria-controls="theme-menu"
-              aria-label={`Tema actual: ${themeOptions.find((option) => option.value === theme)?.label ?? 'Sistema'}`}
-              title="Elegir tema"
+              onClick={() => setTheme((current) => (getResolvedTheme(current) === 'dark' ? 'light' : 'dark'))}
+              role="switch"
+              aria-checked={resolvedTheme === 'dark'}
+              aria-label={resolvedTheme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+              title={theme === 'system'
+                ? `Tema del sistema: ${resolvedTheme === 'dark' ? 'oscuro' : 'claro'}`
+                : `Cambiar a tema ${resolvedTheme === 'dark' ? 'claro' : 'oscuro'}`}
             >
-              {theme === 'light' ? <SunMedium size={16} aria-hidden="true" /> : theme === 'dark' ? <Moon size={16} aria-hidden="true" /> : <LaptopMinimal size={16} aria-hidden="true" />}
-              <span>Tema</span>
-              <ChevronDown size={14} aria-hidden="true" />
+              <span className="theme-switch-track" aria-hidden="true">
+                <span className="theme-switch-thumb">
+                  {resolvedTheme === 'dark' ? <Moon size={13} aria-hidden="true" /> : <SunMedium size={13} aria-hidden="true" />}
+                </span>
+              </span>
+              <span className="button-label">{resolvedTheme === 'dark' ? 'Oscuro' : 'Claro'}</span>
             </button>
-            {isThemeMenuOpen && (
-              <div id="theme-menu" className="theme-popover" role="menu" aria-label="Seleccionar tema">
-                {themeOptions.map((option) => {
-                  const Icon = option.icon
-                  const isActive = theme === option.value
-                  return (
-                    <button
-                      key={option.value}
-                      className={`theme-option${isActive ? ' is-active' : ''}`}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={isActive}
-                      onClick={() => {
-                        setTheme(option.value)
-                        setIsThemeMenuOpen(false)
-                        window.setTimeout(() => themeTriggerRef.current?.focus(), 0)
-                      }}
-                    >
-                      <Icon size={15} aria-hidden="true" />
-                      <span>{option.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
           </div>
           <div className="toolbar-group toolbar-group-primary" aria-label="Guardar y exportar">
             <button
