@@ -11,6 +11,7 @@ coverage/
 .env.*
 !.env.example
 .workflow/artifacts/
+.workflow/studio-history/
 
 # Secrets and certificates
 *.pem

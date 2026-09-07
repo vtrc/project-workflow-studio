@@ -272,6 +272,19 @@
 .inspector-heading h2 { max-width: 265px; overflow: hidden; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
 .import-error { margin: 14px 0 0; padding: 10px 11px; border-radius: 7px; color: #9e3029; background: #fff2f0; font-size: 0.77rem; line-height: 1.4; }
 
+.history-panel { padding: 17px 0; border-bottom: 1px solid #e5ebe8; }
+.history-heading { display: flex; align-items: flex-start; gap: 9px; color: #1f7268; }
+.history-heading h3 { margin: 0; color: #2a3834; font-size: 0.77rem; letter-spacing: 0.01em; }
+.history-heading .section-kicker { margin-bottom: 2px; }
+.history-note { margin: 9px 0 0; color: #71807b; font-size: 0.7rem; line-height: 1.4; }
+.history-actions { display: flex; gap: 7px; margin-top: 11px; }
+.history-list { display: grid; gap: 5px; max-height: 184px; margin: 11px 0 0; padding: 0; overflow-y: auto; list-style: none; }
+.history-entry { width: 100%; display: grid; gap: 2px; padding: 8px 9px; border: 1px solid #dbe4e0; border-radius: 7px; color: #3b5049; background: #fff; text-align: left; font-size: 0.72rem; font-weight: 700; cursor: pointer; }
+.history-entry:hover { border-color: #8fafa6; background: #f8fbf9; }
+.history-entry:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+.history-entry.is-current { border-color: #0f766e; background: #edf7f3; color: #0b6259; }
+.history-entry time { color: #7a8984; font-size: 0.65rem; font-weight: 560; }
+
 .inspector-form { padding-top: 8px; }
 .field-group { padding: 17px 0; border-bottom: 1px solid #e5ebe8; }
 .field-group:last-child { border-bottom: 0; }

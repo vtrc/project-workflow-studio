@@ -21,12 +21,26 @@ npm run build
 ## Flujo de trabajo
 
 1. Abre el [Studio publicado](https://vtrc.github.io/project-workflow-studio/).
-2. Pulsa **Abrir workflow** y selecciona `workflow.yaml` en tu máquina.
-3. Añade etapas y conéctalas mediante `on_success`.
-4. Configura entradas, salidas, delegación y las Skills de cada etapa.
-5. Revisa los avisos de validación y pulsa **Guardar cambios** para escribir sobre el mismo archivo.
+2. Si has abierto el Studio con `?path=ruta/relativa/workflow.yaml`, pulsa **Seleccionar carpeta del proyecto** y elige la raíz del proyecto. El Studio abrirá esa ruta y activará el historial local.
+3. Si tu navegador no permite seleccionar carpetas, pulsa **Abrir archivo** y selecciona el YAML directamente.
+4. Añade etapas y conéctalas mediante `on_success`.
+5. Configura entradas, salidas, delegación y las Skills de cada etapa.
+6. Revisa los avisos de validación y pulsa **Guardar cambios** para escribir sobre el mismo archivo.
 
 El Studio usa el selector de archivos del navegador: la ruta siempre la elige la persona. En navegadores compatibles con File System Access API, el permiso de escritura se solicita al guardar y no se sube el archivo a ningún servidor. Si el navegador no ofrece esa API, se puede importar el archivo y descargar una copia editada.
+
+## Historial local
+
+Al seleccionar la carpeta del proyecto, el Studio guarda un historial lineal y local (incluidas las posiciones del diagrama) en:
+
+```
+.workflow/studio-history/
+├── manifest.json
+└── snapshots/
+    └── snapshot-<id>.json
+```
+
+`manifest.json` declara la versión del esquema, la ruta YAML relativa, el cursor actual y los metadatos de cada versión. Las instantáneas contienen la receta y las posiciones, nunca permisos ni handles del navegador. El historial se agrupa mientras se escribe, conserva un número/tamaño acotado de versiones y descarta la rama de rehacer cuando se edita tras deshacer. Esta carpeta es una caché local, está ignorada por Git y no se carga a ningún servicio. Si falla el permiso o la escritura, el Studio muestra un aviso y mantiene el historial de la sesión. La ruta `path` solo acepta YAML relativo y seguro; no admite rutas absolutas ni segmentos `..`.
 
 ## Capacidades
 
@@ -35,6 +49,7 @@ El Studio usa el selector de archivos del navegador: la ruta siempre la elige la
 - Importación y exportación de YAML.
 - Validación de identificadores, transiciones y asociaciones de Skills.
 - Posicionamiento visual de los nodos del diagrama.
+- Deshacer, rehacer y restauración de versiones desde un historial visible.
 
 ## Relación con Project Workflow
 

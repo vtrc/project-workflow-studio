@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Background,
   Controls,
@@ -16,9 +16,13 @@ import {
   Check,
   Download,
   FileOutput,
+  FolderOpen,
+  History,
   Plus,
+  Redo2,
   Save,
   Settings2,
+  Undo2,
   Upload,
   Workflow,
 } from 'lucide-react'
@@ -33,9 +37,22 @@ import {
   workflowFromYaml,
 } from './workflow'
 import type { WorkflowRecipe, WorkflowStep } from './types'
+import {
+  asPersistedManifest,
+  cloneSnapshot,
+  HISTORY_SCHEMA_VERSION,
+  newHistory,
+  newHistoryEntry,
+  trimHistory,
+  type DiagramPosition,
+  type HistoryEntry,
+  type PersistedHistoryManifest,
+  type WorkflowHistory,
+  type WorkflowSnapshot,
+} from './history'
 import './App.css'
 
-type Position = { x: number; y: number }
+type Position = DiagramPosition
 type HandleSide = 'top' | 'right' | 'bottom' | 'left'
 
 type LocalFileWritable = {
@@ -49,6 +66,13 @@ type LocalFileHandle = {
   createWritable: () => Promise<LocalFileWritable>
 }
 
+type LocalDirectoryHandle = {
+  name: string
+  getDirectoryHandle: (name: string, options?: { create?: boolean }) => Promise<LocalDirectoryHandle>
+  getFileHandle: (name: string, options?: { create?: boolean }) => Promise<LocalFileHandle>
+  removeEntry?: (name: string, options?: { recursive?: boolean }) => Promise<void>
+}
+
 declare global {
   interface Window {
     showOpenFilePicker?: (options?: {
@@ -59,6 +83,7 @@ declare global {
         accept: Record<string, string[]>
       }>
     }) => Promise<LocalFileHandle[]>
+    showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<LocalDirectoryHandle>
   }
 }
 
@@ -67,6 +92,8 @@ const nodeWidth = 254
 const estimatedNodeHeight = 160
 const verticalStepGap = 76
 const yamlFileNamePattern = /^[^/\\]+\.(?:yaml|yml)$/i
+const historyDirectoryName = '.workflow'
+const studioHistoryDirectoryName = 'studio-history'
 
 function getSafeRelativeFileHint(): string | null {
   const hintedPath = new URLSearchParams(window.location.search).get('path')
@@ -91,6 +118,58 @@ function assertYamlFileName(file: File): void {
   if (!yamlFileNamePattern.test(file.name)) {
     throw new Error('Selecciona un archivo YAML con extensión .yaml o .yml.')
   }
+}
+
+function snapshotFor(workflow: WorkflowRecipe, positions: Record<string, Position>): WorkflowSnapshot {
+  return { schemaVersion: HISTORY_SCHEMA_VERSION, workflow, positions }
+}
+
+function isPositionRecord(value: unknown): value is Record<string, Position> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Object.values(value as Record<string, unknown>).every(
+    (position) => Boolean(position) && typeof position === 'object' &&
+      typeof (position as Position).x === 'number' && typeof (position as Position).y === 'number',
+  )
+}
+
+function isSnapshot(value: unknown): value is WorkflowSnapshot {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<WorkflowSnapshot>
+  return candidate.schemaVersion === HISTORY_SCHEMA_VERSION && Boolean(candidate.workflow) && isPositionRecord(candidate.positions)
+}
+
+function isManifest(value: unknown): value is PersistedHistoryManifest {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<PersistedHistoryManifest>
+  return candidate.schemaVersion === HISTORY_SCHEMA_VERSION &&
+    typeof candidate.workflowPath === 'string' &&
+    typeof candidate.cursor === 'number' &&
+    Array.isArray(candidate.entries)
+}
+
+async function writeJsonFile(directory: LocalDirectoryHandle, name: string, value: unknown): Promise<void> {
+  const handle = await directory.getFileHandle(name, { create: true })
+  const writable = await handle.createWritable()
+  await writable.write(JSON.stringify(value, null, 2))
+  await writable.close()
+}
+
+async function readJsonFile(directory: LocalDirectoryHandle, name: string): Promise<unknown | null> {
+  try {
+    const handle = await directory.getFileHandle(name)
+    return JSON.parse(await (await handle.getFile()).text()) as unknown
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'NotFoundError') return null
+    throw error
+  }
+}
+
+async function resolveFile(root: LocalDirectoryHandle, relativePath: string): Promise<LocalFileHandle> {
+  const segments = relativePath.split('/')
+  const fileName = segments.pop()
+  if (!fileName || !yamlFileNamePattern.test(fileName)) throw new Error('La ruta sugerida no apunta a un YAML válido.')
+  let directory = root
+  for (const segment of segments) directory = await directory.getDirectoryHandle(segment)
+  return directory.getFileHandle(fileName)
 }
 
 const flowPositionBySide: Record<HandleSide, FlowPosition> = {
@@ -169,8 +248,26 @@ function App() {
   const [importError, setImportError] = useState<string | null>(null)
   const [sourceFile, setSourceFile] = useState<LocalFileHandle | null>(null)
   const [sourceFileName, setSourceFileName] = useState<string | null>(null)
+  const [history, setHistory] = useState<WorkflowHistory>(() =>
+    newHistory('sesión-sin-carpeta', snapshotFor(defaultWorkflow, initialPositions(defaultWorkflow)), 'Versión inicial'),
+  )
+  const [historyEnabled, setHistoryEnabled] = useState(false)
+  const [historyPath, setHistoryPath] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const flowInstanceRef = useRef<ReactFlowInstance<Node<WorkflowNodeData>, Edge> | null>(null)
+  const workflowRef = useRef(workflow)
+  const positionsRef = useRef(positions)
+  const historyRef = useRef(history)
+  const historyDirectoryRef = useRef<LocalDirectoryHandle | null>(null)
+  const historyTimerRef = useRef<number | null>(null)
+  const lastHistoryChangeRef = useRef(0)
+
+  useEffect(() => { workflowRef.current = workflow }, [workflow])
+  useEffect(() => { positionsRef.current = positions }, [positions])
+  useEffect(() => { historyRef.current = history }, [history])
+  useEffect(() => () => {
+    if (historyTimerRef.current) window.clearTimeout(historyTimerRef.current)
+  }, [])
 
   const selectedStep =
     workflow.steps.find((step) => step.id === selectedStepId) ?? null
@@ -243,11 +340,77 @@ function App() {
     }, 80)
   }, [])
 
-  const updateWorkflow = useCallback((next: WorkflowRecipe, message?: string) => {
-    setWorkflow(next)
+  const persistHistory = useCallback(async () => {
+    const directory = historyDirectoryRef.current
+    if (!directory) return
+    const current = historyRef.current
+    try {
+      const snapshots = await directory.getDirectoryHandle('snapshots', { create: true })
+      const previousManifest = await readJsonFile(directory, 'manifest.json')
+      await Promise.all(current.entries.map((entry) =>
+        writeJsonFile(snapshots, `${entry.id}.json`, entry.snapshot),
+      ))
+      await writeJsonFile(directory, 'manifest.json', asPersistedManifest(current))
+      if (isManifest(previousManifest) && snapshots.removeEntry) {
+        const activeIds = new Set(current.entries.map((entry) => entry.id))
+        await Promise.all(previousManifest.entries
+          .filter((entry) => typeof entry?.id === 'string' && !activeIds.has(entry.id))
+          .map((entry) => snapshots.removeEntry?.(`${entry.id}.json`)),
+        )
+      }
+    } catch (error) {
+      setImportError(
+        error instanceof Error
+          ? `No se ha podido guardar el historial local: ${error.message}`
+          : 'No se ha podido guardar el historial local.',
+      )
+    }
+  }, [])
+
+  const scheduleHistoryPersistence = useCallback(() => {
+    if (!historyDirectoryRef.current) return
+    if (historyTimerRef.current) window.clearTimeout(historyTimerRef.current)
+    historyTimerRef.current = window.setTimeout(() => {
+      historyTimerRef.current = null
+      void persistHistory()
+    }, 700)
+  }, [persistHistory])
+
+  const replaceHistory = useCallback((next: WorkflowHistory, persist = true) => {
+    historyRef.current = next
+    setHistory(next)
+    if (persist) scheduleHistoryPersistence()
+  }, [scheduleHistoryPersistence])
+
+  const recordHistory = useCallback((nextWorkflow: WorkflowRecipe, nextPositions: Record<string, Position>, label: string) => {
+    const current = historyRef.current
+    const now = Date.now()
+    const snapshot = snapshotFor(nextWorkflow, nextPositions)
+    const shouldCoalesce = now - lastHistoryChangeRef.current < 700 && current.cursor === current.entries.length - 1
+    const retained = current.entries.slice(0, current.cursor + 1)
+    const entry = newHistoryEntry(snapshot, label)
+    const next = trimHistory({
+      ...current,
+      cursor: shouldCoalesce ? retained.length - 1 : retained.length,
+      entries: shouldCoalesce ? [...retained.slice(0, -1), entry] : [...retained, entry],
+    })
+    lastHistoryChangeRef.current = now
+    replaceHistory(next)
+  }, [replaceHistory])
+
+  const applyChange = useCallback((nextWorkflow: WorkflowRecipe, nextPositions: Record<string, Position>, message?: string) => {
+    workflowRef.current = nextWorkflow
+    positionsRef.current = nextPositions
+    setWorkflow(nextWorkflow)
+    setPositions(nextPositions)
     setNotice(message ?? 'Cambios guardados en el modelo YAML')
     setImportError(null)
-  }, [])
+    recordHistory(nextWorkflow, nextPositions, message ?? 'Edición del workflow')
+  }, [recordHistory])
+
+  const updateWorkflow = useCallback((next: WorkflowRecipe, message?: string) => {
+    applyChange(next, positionsRef.current, message)
+  }, [applyChange])
 
   const updateStep = useCallback(
     (stepId: string, update: (step: WorkflowStep) => WorkflowStep) => {
@@ -261,16 +424,14 @@ function App() {
         steps = steps.map((step) =>
           step.on_success === stepId ? { ...step, on_success: changed.id } : step,
         )
-        setPositions((current) => {
-          const { [stepId]: oldPosition, ...rest } = current
-          return { ...rest, [changed.id]: oldPosition ?? { x: 0, y: 0 } }
-        })
+        const { [stepId]: oldPosition, ...rest } = positionsRef.current
+        positionsRef.current = { ...rest, [changed.id]: oldPosition ?? { x: 0, y: 0 } }
         setSelectedStepId(changed.id)
       }
 
-      updateWorkflow({ ...workflow, steps })
+      applyChange({ ...workflow, steps }, positionsRef.current)
     },
-    [updateWorkflow, workflow],
+    [applyChange, workflow],
   )
 
   const addStep = useCallback(() => {
@@ -290,14 +451,12 @@ function App() {
         ]
       : [nextStep]
 
-    setPositions((current) => {
-      const placement = positionBelow(parent?.id, current)
-      return { ...current, ...placement.shiftedPositions, [id]: placement.position }
-    })
+    const placement = positionBelow(parent?.id, positionsRef.current)
+    const nextPositions = { ...positionsRef.current, ...placement.shiftedPositions, [id]: placement.position }
     setSelectedStepId(id)
-    updateWorkflow({ ...workflow, steps }, 'Nueva etapa añadida')
+    applyChange({ ...workflow, steps }, nextPositions, 'Nueva etapa añadida')
     fitDiagram()
-  }, [fitDiagram, selectedStepId, updateWorkflow, workflow])
+  }, [applyChange, fitDiagram, selectedStepId, workflow])
 
   const duplicateStep = useCallback(
     (stepId: string) => {
@@ -321,15 +480,13 @@ function App() {
       const steps = [...workflow.steps]
       steps[sourceIndex] = { ...source, on_success: id }
       steps.splice(sourceIndex + 1, 0, copy)
-      setPositions((current) => {
-        const placement = positionBelow(source.id, current)
-        return { ...current, ...placement.shiftedPositions, [id]: placement.position }
-      })
+      const placement = positionBelow(source.id, positionsRef.current)
+      const nextPositions = { ...positionsRef.current, ...placement.shiftedPositions, [id]: placement.position }
       setSelectedStepId(id)
-      updateWorkflow({ ...workflow, steps }, 'Etapa duplicada')
+      applyChange({ ...workflow, steps }, nextPositions, 'Etapa duplicada')
       fitDiagram()
     },
-    [fitDiagram, updateWorkflow, workflow],
+    [applyChange, fitDiagram, workflow],
   )
 
   const deleteStep = useCallback(
@@ -343,14 +500,11 @@ function App() {
         .map((step) =>
           step.on_success === stepId ? { ...step, on_success: replacement } : step,
         )
-      setPositions((current) => {
-        const { [stepId]: _, ...rest } = current
-        return rest
-      })
+      const { [stepId]: _, ...nextPositions } = positionsRef.current
       setSelectedStepId(steps[0]?.id ?? null)
-      updateWorkflow({ ...workflow, steps }, 'Etapa eliminada y transiciones actualizadas')
+      applyChange({ ...workflow, steps }, nextPositions, 'Etapa eliminada y transiciones actualizadas')
     },
-    [updateWorkflow, workflow],
+    [applyChange, workflow],
   )
 
   const handleNodeChanges = useCallback((changes: NodeChange[]) => {
@@ -360,14 +514,12 @@ function App() {
     )
     if (positionChanges.length === 0) return
 
-    setPositions((current) => {
-      const next = { ...current }
-      positionChanges.forEach((change) => {
-        if (change.position) next[change.id] = change.position
-      })
-      return next
+    const next = { ...positionsRef.current }
+    positionChanges.forEach((change) => {
+      if (change.position) next[change.id] = change.position
     })
-  }, [])
+    applyChange(workflowRef.current, next, 'Posición del diagrama ajustada')
+  }, [applyChange])
 
   const handleConnect = useCallback(
     (connection: Connection) => {
@@ -388,19 +540,102 @@ function App() {
     setNotice('Copia de workflow.yaml preparada para descargar')
   }, [serializedYaml])
 
+  const restoreHistoryEntry = useCallback((index: number) => {
+    const current = historyRef.current
+    const entry = current.entries[index]
+    if (!entry) return
+    const restored = cloneSnapshot(entry.snapshot)
+    const next = { ...current, cursor: index }
+    replaceHistory(next)
+    workflowRef.current = restored.workflow
+    positionsRef.current = restored.positions
+    setWorkflow(restored.workflow)
+    setPositions(restored.positions)
+    setSelectedStepId(restored.workflow.steps[0]?.id ?? null)
+    setNotice(`Restaurada la versión: ${entry.label}`)
+    setImportError(null)
+    fitDiagram()
+  }, [fitDiagram, replaceHistory])
+
+  const loadStoredHistory = useCallback(async (
+    directory: LocalDirectoryHandle,
+    workflowPath: string,
+  ): Promise<WorkflowHistory | null> => {
+    try {
+      const rawManifest = await readJsonFile(directory, 'manifest.json')
+      if (!isManifest(rawManifest) || rawManifest.workflowPath !== workflowPath) return null
+      const snapshots = await directory.getDirectoryHandle('snapshots')
+      const entries: HistoryEntry[] = []
+      for (const item of rawManifest.entries) {
+        if (
+          !item || typeof item.id !== 'string' || !/^snapshot-[A-Za-z0-9-]+$/.test(item.id) ||
+          typeof item.timestamp !== 'string' || typeof item.label !== 'string'
+        ) continue
+        const rawSnapshot = await readJsonFile(snapshots, `${item.id}.json`)
+        if (!isSnapshot(rawSnapshot)) continue
+        entries.push({ id: item.id, timestamp: item.timestamp, label: item.label, snapshot: rawSnapshot })
+      }
+      if (entries.length === 0) return null
+      return trimHistory({
+        schemaVersion: HISTORY_SCHEMA_VERSION,
+        workflowPath,
+        cursor: Math.min(Math.max(0, rawManifest.cursor), entries.length - 1),
+        entries,
+      })
+    } catch {
+      return null
+    }
+  }, [])
+
   const loadWorkflowFile = useCallback(
-    async (file: File, handle?: LocalFileHandle) => {
+    async (file: File, handle?: LocalFileHandle, historyDirectory?: LocalDirectoryHandle, workflowPath?: string) => {
       assertYamlFileName(file)
       const source = await file.text()
       const imported = workflowFromYaml(source)
-      updateWorkflow(imported, `Abierto ${file.name}`)
-      setPositions(initialPositions(imported))
-      setSelectedStepId(imported.steps[0]?.id ?? null)
+      const initial = initialPositions(imported)
+      const path = workflowPath ?? file.name
+      historyDirectoryRef.current = historyDirectory ?? null
+      setHistoryEnabled(Boolean(historyDirectory))
+      setHistoryPath(historyDirectory ? path : null)
+      const restoredHistory = historyDirectory ? await loadStoredHistory(historyDirectory, path) : null
+      const nextHistory = restoredHistory ?? newHistory(path, snapshotFor(imported, initial), 'Versión inicial')
+      const activeSnapshot = cloneSnapshot(nextHistory.entries[nextHistory.cursor].snapshot)
+      replaceHistory(nextHistory, false)
+      workflowRef.current = activeSnapshot.workflow
+      positionsRef.current = activeSnapshot.positions
+      setWorkflow(activeSnapshot.workflow)
+      setPositions(activeSnapshot.positions)
+      setNotice(restoredHistory ? `Historial local recuperado para ${file.name}` : `Abierto ${file.name}`)
+      setImportError(null)
+      setSelectedStepId(activeSnapshot.workflow.steps[0]?.id ?? null)
       setSourceFile(handle ?? null)
       setSourceFileName(file.name)
+      if (historyDirectory && !restoredHistory) scheduleHistoryPersistence()
     },
-    [updateWorkflow],
+    [loadStoredHistory, replaceHistory, scheduleHistoryPersistence],
   )
+
+  const openProjectFolder = useCallback(async () => {
+    if (!window.showDirectoryPicker) {
+      setImportError('Este navegador no permite seleccionar una carpeta. Usa “Abrir workflow”.')
+      return
+    }
+    try {
+      const root = await window.showDirectoryPicker({ mode: 'readwrite' })
+      const workflowPath = expectedFileHint ?? 'workflow.yaml'
+      const handle = await resolveFile(root, workflowPath)
+      const historyParent = await root.getDirectoryHandle(historyDirectoryName, { create: true })
+      const historyDirectory = await historyParent.getDirectoryHandle(studioHistoryDirectoryName, { create: true })
+      await loadWorkflowFile(await handle.getFile(), handle, historyDirectory, workflowPath)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      setImportError(
+        error instanceof Error
+          ? `No se ha podido abrir la carpeta del proyecto: ${error.message}`
+          : 'No se ha podido abrir la carpeta del proyecto.',
+      )
+    }
+  }, [expectedFileHint, loadWorkflowFile])
 
   const openWorkflowFile = useCallback(async () => {
     if (!window.showOpenFilePicker) {
@@ -490,8 +725,23 @@ function App() {
             accept=".yaml,.yml,application/x-yaml,text/yaml"
             onChange={importYaml}
           />
-          <button className="button button-quiet" type="button" onClick={openWorkflowFile}>
-            <Upload size={16} aria-hidden="true" /> Abrir workflow
+          <button
+            className="button button-quiet"
+            type="button"
+            onClick={openProjectFolder}
+            disabled={!window.showDirectoryPicker}
+            title={window.showDirectoryPicker ? 'Seleccionar la carpeta del proyecto y habilitar el historial local' : 'Este navegador no admite el acceso a carpetas'}
+          >
+            <FolderOpen size={16} aria-hidden="true" /> Seleccionar carpeta del proyecto
+          </button>
+          <button className="button button-quiet" type="button" onClick={openWorkflowFile} title="Abrir solo un archivo YAML; el historial no se guardará en la carpeta">
+            <Upload size={16} aria-hidden="true" /> Abrir archivo
+          </button>
+          <button className="icon-button" type="button" onClick={() => restoreHistoryEntry(history.cursor - 1)} disabled={history.cursor === 0} aria-label="Deshacer" title="Deshacer">
+            <Undo2 size={15} aria-hidden="true" />
+          </button>
+          <button className="icon-button" type="button" onClick={() => restoreHistoryEntry(history.cursor + 1)} disabled={history.cursor >= history.entries.length - 1} aria-label="Rehacer" title="Rehacer">
+            <Redo2 size={15} aria-hidden="true" />
           </button>
           <button
             className="button button-primary"
@@ -579,6 +829,50 @@ function App() {
           </div>
 
           {importError && <p className="import-error" role="alert">{importError}</p>}
+
+          <section className="history-panel" aria-labelledby="history-heading">
+            <div className="history-heading">
+              <History size={16} aria-hidden="true" />
+              <div>
+                <p className="section-kicker">HISTORIAL</p>
+                <h3 id="history-heading">Versiones del workflow</h3>
+              </div>
+            </div>
+            <p className="history-note">
+              {historyEnabled
+                ? `Se guarda solo en .workflow/studio-history/${historyPath ? ` (${historyPath})` : ''}.`
+                : 'Historial temporal. Selecciona la carpeta del proyecto para conservarlo al reiniciar.'}
+            </p>
+            <div className="history-actions" aria-label="Navegar por el historial">
+              <button className="button button-secondary button-small" type="button" onClick={() => restoreHistoryEntry(history.cursor - 1)} disabled={history.cursor === 0}>
+                <Undo2 size={14} aria-hidden="true" /> Deshacer
+              </button>
+              <button className="button button-secondary button-small" type="button" onClick={() => restoreHistoryEntry(history.cursor + 1)} disabled={history.cursor >= history.entries.length - 1}>
+                <Redo2 size={14} aria-hidden="true" /> Rehacer
+              </button>
+            </div>
+            <ol className="history-list" aria-label="Versiones disponibles">
+              {[...history.entries].reverse().map((entry, reverseIndex) => {
+                const index = history.entries.length - reverseIndex - 1
+                const isCurrent = index === history.cursor
+                return (
+                  <li key={entry.id}>
+                    <button
+                      className={`history-entry${isCurrent ? ' is-current' : ''}`}
+                      type="button"
+                      onClick={() => restoreHistoryEntry(index)}
+                      aria-current={isCurrent ? 'step' : undefined}
+                      aria-label={`Restaurar versión ${entry.label}, ${new Date(entry.timestamp).toLocaleString('es-ES')}`}
+                      title="Restaurar esta versión, incluidas las posiciones del diagrama"
+                    >
+                      <span>{entry.label}</span>
+                      <time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleString('es-ES')}</time>
+                    </button>
+                  </li>
+                )
+              })}
+            </ol>
+          </section>
 
           <Inspector
             workflow={workflow}
