@@ -857,7 +857,7 @@ function App() {
                 defaultEdgeOptions={{ type: 'smoothstep' }}
                 aria-label="Diagrama de etapas del workflow"
               >
-                <Background gap={20} size={1} color="#d9dfdc" />
+                <Background gap={20} size={1} color="var(--flow-grid)" />
                 <Controls showInteractive={false} />
               </ReactFlow>
             )}

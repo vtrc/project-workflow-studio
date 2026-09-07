@@ -42,6 +42,10 @@ Al abrir el workflow desde la carpeta raíz, el Studio guarda un historial linea
 
 `manifest.json` declara la versión del esquema, la ruta YAML relativa, el cursor actual y los metadatos de cada versión. Las instantáneas contienen la receta y las posiciones, nunca permisos ni handles del navegador. El historial se agrupa mientras se escribe, conserva un número/tamaño acotado de versiones y descarta la rama de rehacer cuando se edita tras deshacer. Esta carpeta es una caché local, está ignorada por Git y no se carga a ningún servicio. Si falla el permiso o la escritura, el Studio muestra un aviso y mantiene el historial de la sesión. La ruta `path` solo acepta YAML relativo y seguro; no admite rutas absolutas ni segmentos `..`.
 
+## Tema visual
+
+El Studio sigue automáticamente el tema claro u oscuro seleccionado en el sistema operativo. Si el sistema cambia de tema mientras la aplicación está abierta, la interfaz se adapta sin recargar ni guardar una preferencia adicional en el navegador.
+
 ## Capacidades
 
 - Diagrama interactivo de etapas y transiciones.

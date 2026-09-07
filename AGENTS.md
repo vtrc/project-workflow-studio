@@ -36,6 +36,7 @@ Run `npm run lint` and `npm run build` after code, configuration, or documentati
 ## UI work
 
 For frontend design, accessibility, UX, or visual-polish work, read the `impeccable` Skill from the active Project Workflow environment before editing. The Studio is an editor: clarity, scanability, keyboard accessibility, and predictable YAML behavior take priority over decorative effects.
+The visual theme follows the operating system's `prefers-color-scheme` setting; keep light and dark tokens in sync and verify contrast, focus, disabled, and React Flow states in both themes.
 
 ## Local workflow files
 
