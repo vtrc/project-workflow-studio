@@ -66,6 +66,32 @@ const nodeTypes = { workflowStep: WorkflowNode }
 const nodeWidth = 254
 const estimatedNodeHeight = 160
 const verticalStepGap = 76
+const yamlFileNamePattern = /^[^/\\]+\.(?:yaml|yml)$/i
+
+function getSafeRelativeFileHint(): string | null {
+  const hintedPath = new URLSearchParams(window.location.search).get('path')
+  if (!hintedPath) return null
+
+  const normalized = hintedPath.trim().replace(/\\/g, '/')
+  if (
+    !normalized ||
+    normalized.startsWith('/') ||
+    normalized.startsWith('~') ||
+    /^[A-Za-z]:/.test(normalized) ||
+    normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..') ||
+    !yamlFileNamePattern.test(normalized.split('/').at(-1) ?? '')
+  ) {
+    return null
+  }
+
+  return normalized
+}
+
+function assertYamlFileName(file: File): void {
+  if (!yamlFileNamePattern.test(file.name)) {
+    throw new Error('Selecciona un archivo YAML con extensión .yaml o .yml.')
+  }
+}
 
 const flowPositionBySide: Record<HandleSide, FlowPosition> = {
   top: FlowPosition.Top,
@@ -134,7 +160,12 @@ function App() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(
     defaultWorkflow.steps[0]?.id ?? null,
   )
-  const [notice, setNotice] = useState('Selecciona workflow.yaml para editarlo y guardarlo en el mismo archivo')
+  const expectedFileHint = useMemo(() => getSafeRelativeFileHint(), [])
+  const [notice, setNotice] = useState(
+    expectedFileHint
+      ? `Selecciona ${expectedFileHint} con el selector del navegador para abrirlo.`
+      : 'Selecciona workflow.yaml para editarlo y guardarlo en el mismo archivo',
+  )
   const [importError, setImportError] = useState<string | null>(null)
   const [sourceFile, setSourceFile] = useState<LocalFileHandle | null>(null)
   const [sourceFileName, setSourceFileName] = useState<string | null>(null)
@@ -359,6 +390,7 @@ function App() {
 
   const loadWorkflowFile = useCallback(
     async (file: File, handle?: LocalFileHandle) => {
+      assertYamlFileName(file)
       const source = await file.text()
       const imported = workflowFromYaml(source)
       updateWorkflow(imported, `Abierto ${file.name}`)
@@ -446,6 +478,7 @@ function App() {
         <div className="workflow-title">
           <span className="source-status"><Check size={14} aria-hidden="true" /> YAML</span>
           <strong>{workflow.id}</strong>
+          {expectedFileHint && <span className="file-hint" title={expectedFileHint}>Esperado: {expectedFileHint}</span>}
         </div>
 
         <div className="toolbar" aria-label="Acciones del workflow">
@@ -454,7 +487,7 @@ function App() {
             id="yaml-import"
             className="visually-hidden"
             type="file"
-            accept=".yaml,.yml,text/yaml,application/x-yaml"
+            accept=".yaml,.yml,application/x-yaml,text/yaml"
             onChange={importYaml}
           />
           <button className="button button-quiet" type="button" onClick={openWorkflowFile}>
@@ -489,6 +522,9 @@ function App() {
 
           <div className="canvas-help" role="status">
             <span><span className="status-dot" /> {notice}</span>
+            {expectedFileHint && (
+              <span className="file-hint-copy">Ruta sugerida: {expectedFileHint}. El navegador no la abrirá automáticamente.</span>
+            )}
             {validationIssues.length > 0 && (
               <span className="validation-warning">Revisa {validationIssues.length} aviso{validationIssues.length === 1 ? '' : 's'} en el inspector.</span>
             )}

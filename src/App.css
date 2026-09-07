@@ -56,6 +56,18 @@
   letter-spacing: 0.05em;
 }
 
+.file-hint {
+  max-width: 220px;
+  overflow: hidden;
+  color: #687773;
+  font-size: 0.72rem;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-hint-copy { color: #5d716a; }
+
 .toolbar { justify-content: flex-end; gap: 8px; }
 
 .button {
