@@ -892,7 +892,12 @@ function App() {
       </section>
 
       {isHistoryOpen && (
-        <div className="history-drawer-layer">
+        <div
+          className="history-drawer-layer"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) closeHistory()
+          }}
+        >
           <div
             id="history-drawer"
             className="history-drawer"

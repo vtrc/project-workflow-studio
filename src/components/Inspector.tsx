@@ -185,9 +185,9 @@ function FieldHelp({ content }: { content: HelpContent }) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLSpanElement>(null)
 
-  const close = () => {
+  const close = (restoreFocus = true) => {
     setIsOpen(false)
-    window.requestAnimationFrame(() => triggerRef.current?.focus())
+    if (restoreFocus) window.requestAnimationFrame(() => triggerRef.current?.focus())
   }
 
   useEffect(() => {
@@ -196,10 +196,20 @@ function FieldHelp({ content }: { content: HelpContent }) {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close()
     }
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) return
+      close(false)
+    }
 
     document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('pointerdown', closeOnPointerDown)
     closeRef.current?.focus()
-    return () => document.removeEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('pointerdown', closeOnPointerDown)
+    }
   }, [isOpen])
 
   useLayoutEffect(() => {
@@ -293,7 +303,7 @@ function FieldHelp({ content }: { content: HelpContent }) {
         >
           <span className="field-help-popover-header">
             <strong>{content.title}</strong>
-            <button ref={closeRef} type="button" className="field-help-close" aria-label={`Cerrar ayuda sobre ${content.title}`} onClick={close}>
+            <button ref={closeRef} type="button" className="field-help-close" aria-label={`Cerrar ayuda sobre ${content.title}`} onClick={() => close()}>
               <X size={14} aria-hidden="true" />
             </button>
           </span>

@@ -289,7 +289,7 @@
 .history-entry.is-current { border-color: #0f766e; background: #edf7f3; color: #0b6259; }
 .history-entry time { color: #7a8984; font-size: 0.66rem; font-weight: 560; }
 
-.history-drawer-layer { position: fixed; z-index: 50; inset: 64px 0 0; display: flex; justify-content: flex-end; pointer-events: none; }
+.history-drawer-layer { position: fixed; z-index: 50; inset: 64px 0 0; display: flex; justify-content: flex-end; background: rgba(21, 41, 34, 0.06); pointer-events: auto; }
 .history-drawer { width: min(376px, 100vw); min-height: 0; display: flex; flex-direction: column; padding: 20px; border-left: 1px solid #cad7d2; background: #fbfcfb; box-shadow: -14px 8px 30px rgba(32, 55, 47, 0.14); pointer-events: auto; animation: history-drawer-enter 180ms cubic-bezier(.2,.75,.25,1); }
 .history-drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 15px; border-bottom: 1px solid #e5ebe8; }
 .history-drawer .history-list { max-height: none; flex: 1; min-height: 0; padding-right: 2px; }
