@@ -40,23 +40,27 @@ The visual theme follows the operating system's `prefers-color-scheme` setting; 
 
 ## Local workflow files
 
-The published Studio is the primary editing surface. Use the visible **Abrir
-workflow** action to let the person explicitly select the project root when
-the browser supports `showDirectoryPicker()`. Resolve only `workflow.yaml` or
-the safe relative `?path=` hint within that selected root, then create or reuse
-`.workflow/studio-history/`. A `FileSystemFileHandle` cannot expose its parent
-directory, so the file-picker fallback must remain session-only. When
-`showOpenFilePicker()` and
-`FileSystemFileHandle.createWritable()` are available, preserve the handle and
-save back to the selected file only after the person presses **Guardar cambios**.
-Keep the import-and-download fallback for browsers without write permissions.
+The published Studio is the primary editing surface. Use the visible **Abrir .workflow**
+action to let the person explicitly select the canonical
+`.workflow` directory when the browser supports `showDirectoryPicker()`. The
+directory handle name must be exactly `.workflow`; resolve only its direct
+`workflow.yaml` and `skill-catalog.json` entries, and create or reuse
+`studio-history/` inside that selected directory. Missing `workflow.yaml`
+blocks opening; a missing or stale catalog stays non-blocking so YAML editing
+continues.
 
-The Studio may then write a local-only, ignored history cache at `.workflow/studio-history/`: `manifest.json` (schema version, relative path, cursor, entry metadata) and `snapshots/` (workflow plus diagram positions). Never upload YAML, snapshots, file handles, permissions, or history metadata. Keep the direct file-picker/import-download fallback for browsers without directory access; it provides session-only history. Validate hints as relative YAML paths with no empty, absolute, or `..` segments.
+If directory selection is unavailable, show a clear unsupported-browser error.
+Do not offer a direct YAML file picker, an import fallback, a project-root
+selection, a root-level `workflow.yaml` fallback, or a second permission. The
+Studio may write only the selected `.workflow/studio-history/` cache:
+`manifest.json` (schema version, cursor, entry metadata) and `snapshots/`
+(workflow plus diagram positions). Never upload YAML, snapshots, file handles,
+permissions, or history metadata.
 
 The public URL is `https://vtrc.github.io/project-workflow-studio/`. The
-`project-workflow` Skill in the separate Project Workflow repository owns
-the handoff to that URL; the Studio itself does not clone repositories, invoke
-npm, or upload YAML files.
+`project-workflow` Skill in the separate Project Workflow repository owns the
+handoff to that URL; the Studio itself does not clone repositories, invoke npm,
+or upload YAML files.
 
 ## Git
 

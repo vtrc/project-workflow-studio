@@ -16,7 +16,6 @@ import {
   Check,
   Download,
   FileOutput,
-  FileText,
   FolderOpen,
   History,
   Moon,
@@ -42,7 +41,7 @@ import {
 } from './workflow'
 import type { WorkflowRecipe, WorkflowStep } from './types'
 import { catalogFreshness, validateSkillCatalog, type SkillCatalog } from './skillCatalog'
-import { planWorkflowOpen } from './openWorkflow'
+import { isWorkflowDirectoryName, SKILL_CATALOG_FILE_NAME, WORKFLOW_FILE_NAME } from './workflowFolder'
 import {
   asPersistedManifest,
   cloneSnapshot,
@@ -81,14 +80,6 @@ type LocalDirectoryHandle = {
 
 declare global {
   interface Window {
-    showOpenFilePicker?: (options?: {
-      excludeAcceptAllOption?: boolean
-      multiple?: boolean
-      types?: Array<{
-        description: string
-        accept: Record<string, string[]>
-      }>
-    }) => Promise<LocalFileHandle[]>
     showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<LocalDirectoryHandle>
   }
 }
@@ -112,27 +103,7 @@ const nodeWidth = 254
 const estimatedNodeHeight = 160
 const verticalStepGap = 76
 const yamlFileNamePattern = /^[^/\\]+\.(?:yaml|yml)$/i
-const historyDirectoryName = '.workflow'
 const studioHistoryDirectoryName = 'studio-history'
-
-function getSafeRelativeFileHint(): string | null {
-  const hintedPath = new URLSearchParams(window.location.search).get('path')
-  if (!hintedPath) return null
-
-  const normalized = hintedPath.trim().replace(/\\/g, '/')
-  if (
-    !normalized ||
-    normalized.startsWith('/') ||
-    normalized.startsWith('~') ||
-    /^[A-Za-z]:/.test(normalized) ||
-    normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..') ||
-    !yamlFileNamePattern.test(normalized.split('/').at(-1) ?? '')
-  ) {
-    return null
-  }
-
-  return normalized
-}
 
 function assertYamlFileName(file: File): void {
   if (!yamlFileNamePattern.test(file.name)) {
@@ -181,15 +152,6 @@ async function readJsonFile(directory: LocalDirectoryHandle, name: string): Prom
     if (error instanceof DOMException && error.name === 'NotFoundError') return null
     throw error
   }
-}
-
-async function resolveFile(root: LocalDirectoryHandle, relativePath: string): Promise<LocalFileHandle> {
-  const segments = relativePath.split('/')
-  const fileName = segments.pop()
-  if (!fileName || !yamlFileNamePattern.test(fileName)) throw new Error('La ruta sugerida no apunta a un YAML válido.')
-  let directory = root
-  for (const segment of segments) directory = await directory.getDirectoryHandle(segment)
-  return directory.getFileHandle(fileName)
 }
 
 const flowPositionBySide: Record<HandleSide, FlowPosition> = {
@@ -259,15 +221,10 @@ function App() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(
     defaultWorkflow.steps[0]?.id ?? null,
   )
-  const expectedFileHint = useMemo(() => getSafeRelativeFileHint(), [])
   const [notice, setNotice] = useState(
-    expectedFileHint
-      ? window.showDirectoryPicker
-        ? `Abre la carpeta raíz que contiene ${expectedFileHint}.`
-        : `Selecciona ${expectedFileHint} para abrirlo. El historial será temporal.`
-      : window.showDirectoryPicker
-        ? 'Abre la carpeta raíz que contiene workflow.yaml para editarlo y guardar su historial local.'
-        : 'Abre workflow.yaml para editarlo. El historial será temporal en este navegador.',
+    window.showDirectoryPicker
+      ? 'Abre la carpeta .workflow para editar workflow.yaml y guardar el historial local.'
+      : 'Este navegador no permite seleccionar la carpeta .workflow requerida.',
   )
   const [importError, setImportError] = useState<string | null>(null)
   const [sourceFile, setSourceFile] = useState<LocalFileHandle | null>(null)
@@ -286,7 +243,6 @@ function App() {
     const stored = window.localStorage.getItem(themeStorageKey)
     return isThemeMode(stored) ? stored : 'system'
   })
-  const importInputRef = useRef<HTMLInputElement>(null)
   const historyTriggerRef = useRef<HTMLButtonElement>(null)
   const historyCloseRef = useRef<HTMLButtonElement>(null)
   const themeTriggerRef = useRef<HTMLButtonElement>(null)
@@ -703,8 +659,7 @@ function App() {
   const loadSkillCatalog = useCallback(async (root: LocalDirectoryHandle) => {
     skillCatalogRootRef.current = root
     try {
-      const workflowDirectory = await root.getDirectoryHandle(historyDirectoryName)
-      const rawCatalog = await readJsonFile(workflowDirectory, 'skill-catalog.json')
+      const rawCatalog = await readJsonFile(root, SKILL_CATALOG_FILE_NAME)
       if (!rawCatalog) {
         setSkillCatalog(null)
         setSkillCatalogState('missing')
@@ -738,11 +693,10 @@ function App() {
     if (!window.showDirectoryPicker) return
     try {
       const root = await window.showDirectoryPicker({ mode: 'readwrite' })
-      const workflowPath = expectedFileHint ?? 'workflow.yaml'
-      const handle = await resolveFile(root, workflowPath)
-      const historyParent = await root.getDirectoryHandle(historyDirectoryName, { create: true })
-      const historyDirectory = await historyParent.getDirectoryHandle(studioHistoryDirectoryName, { create: true })
-      await loadWorkflowFile(await handle.getFile(), handle, historyDirectory, workflowPath)
+      if (!isWorkflowDirectoryName(root.name)) throw new Error('Selecciona exactamente la carpeta .workflow.')
+      const handle = await root.getFileHandle(WORKFLOW_FILE_NAME)
+      const historyDirectory = await root.getDirectoryHandle(studioHistoryDirectoryName, { create: true })
+      await loadWorkflowFile(await handle.getFile(), handle, historyDirectory, WORKFLOW_FILE_NAME)
       await loadSkillCatalog(root)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
@@ -752,55 +706,11 @@ function App() {
           : 'No se ha podido abrir la carpeta del proyecto.',
       )
     }
-  }, [expectedFileHint, loadSkillCatalog, loadWorkflowFile])
-
-  const clearProjectCatalogForFileOnly = useCallback(() => {
-    skillCatalogRootRef.current = null
-    setSkillCatalog(null)
-    setSkillCatalogState('unavailable')
-    setSkillCatalogError(null)
-  }, [])
-
-  const openWorkflowFile = useCallback(async () => {
-    if (!window.showOpenFilePicker) {
-      importInputRef.current?.click()
-      return
-    }
-
-    try {
-      const [handle] = await window.showOpenFilePicker({
-        excludeAcceptAllOption: true,
-        multiple: false,
-        types: [
-          {
-            description: 'Workflow YAML',
-            accept: {
-              'application/x-yaml': ['.yaml', '.yml'],
-              'text/yaml': ['.yaml', '.yml'],
-            },
-          },
-        ],
-      })
-      if (!handle) return
-      await loadWorkflowFile(await handle.getFile(), handle)
-      clearProjectCatalogForFileOnly()
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return
-      setImportError(error instanceof Error ? error.message : 'No se ha podido abrir el archivo YAML.')
-    }
-  }, [clearProjectCatalogForFileOnly, loadWorkflowFile])
+  }, [loadSkillCatalog, loadWorkflowFile])
 
   const openWorkflow = useCallback(() => {
-    const plan = planWorkflowOpen('folder', {
-      directoryPicker: Boolean(window.showDirectoryPicker),
-      filePicker: Boolean(window.showOpenFilePicker),
-    })
-    if (plan.picker === 'directory') {
-      void openWorkflowFromFolder()
-      return
-    }
-    void openWorkflowFile()
-  }, [openWorkflowFile, openWorkflowFromFolder])
+    void openWorkflowFromFolder()
+  }, [openWorkflowFromFolder])
 
   const saveWorkflowFile = useCallback(async () => {
     if (!sourceFile) return
@@ -820,24 +730,6 @@ function App() {
     }
   }, [serializedYaml, sourceFile, sourceFileName])
 
-  const importYaml = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (!file) return
-
-      try {
-        await loadWorkflowFile(file)
-        clearProjectCatalogForFileOnly()
-      } catch (error) {
-        setImportError(
-          error instanceof Error ? error.message : 'No se ha podido leer el archivo YAML.',
-        )
-      } finally {
-        event.target.value = ''
-      }
-    },
-    [clearProjectCatalogForFileOnly, loadWorkflowFile],
-  )
 
   return (
     <main className="studio-shell">
@@ -851,38 +743,21 @@ function App() {
         <div className="workflow-title">
           <span className="source-status"><Check size={14} aria-hidden="true" /> YAML</span>
           <strong>{workflow.id}</strong>
-          {expectedFileHint && <span className="file-hint" title={expectedFileHint}>Esperado: {expectedFileHint}</span>}
         </div>
 
         <div className="toolbar" aria-label="Acciones del workflow">
-          <input
-            ref={importInputRef}
-            id="yaml-import"
-            className="visually-hidden"
-            type="file"
-            accept=".yaml,.yml,application/x-yaml,text/yaml"
-            onChange={importYaml}
-          />
           <div className="toolbar-group" aria-label="Archivo">
             <button
               className="button button-secondary button-open-workflow"
               type="button"
               onClick={openWorkflow}
-              aria-label="Abrir carpeta del proyecto"
+              aria-label="Abrir carpeta .workflow"
               title={window.showDirectoryPicker
-                ? 'Seleccionar la carpeta raíz para cargar el catálogo y conservar el historial local'
-                : 'Abrir un archivo YAML; el historial será temporal en este navegador'}
+                ? 'Seleccionar exactamente la carpeta .workflow para cargar workflow.yaml, el catálogo y el historial local'
+                : 'Este navegador no permite seleccionar la carpeta .workflow requerida'}
+              disabled={!window.showDirectoryPicker}
             >
-              <FolderOpen size={16} aria-hidden="true" /> <span>Abrir carpeta</span>
-            </button>
-            <button
-              className="button button-secondary button-open-yaml"
-              type="button"
-              onClick={() => void openWorkflowFile()}
-              aria-label="Abrir archivo YAML"
-              title="Seleccionar directamente un archivo YAML; el historial será temporal y el catálogo local no estará disponible"
-            >
-              <FileText size={16} aria-hidden="true" /> <span>Abrir archivo YAML</span>
+              <FolderOpen size={16} aria-hidden="true" /> <span>Abrir .workflow</span>
             </button>
           </div>
           <div className="toolbar-group" aria-label="Edición">
@@ -959,9 +834,6 @@ function App() {
 
           <div className="canvas-help" role="status">
             <span><span className="status-dot" /> {notice}</span>
-            {expectedFileHint && (
-              <span className="file-hint-copy">Ruta sugerida: {expectedFileHint}. Elige su carpeta raíz para abrirla.</span>
-            )}
             {validationIssues.length > 0 && (
               <span className="validation-warning">Revisa {validationIssues.length} aviso{validationIssues.length === 1 ? '' : 's'} en el inspector.</span>
             )}
