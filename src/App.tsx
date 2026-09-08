@@ -42,6 +42,7 @@ import {
 import type { WorkflowRecipe, WorkflowStep } from './types'
 import { catalogFreshness, validateSkillCatalog, type SkillCatalog } from './skillCatalog'
 import { isWorkflowDirectoryName, SKILL_CATALOG_FILE_NAME, WORKFLOW_FILE_NAME } from './workflowFolder'
+import { AUTOSAVE_DELAY_MS, isCurrentAutosaveSource, shouldScheduleAutosave } from './autosave'
 import {
   asPersistedManifest,
   cloneSnapshot,
@@ -254,12 +255,21 @@ function App() {
   const skillCatalogRootRef = useRef<LocalDirectoryHandle | null>(null)
   const historyTimerRef = useRef<number | null>(null)
   const lastHistoryChangeRef = useRef(0)
+  const autosaveTimerRef = useRef<number | null>(null)
+  const autosaveQueueRef = useRef(Promise.resolve())
+  const autosaveRevisionRef = useRef(0)
+  const savedRevisionRef = useRef(0)
+  const loadedSourceRef = useRef(false)
+  const sourceFileRef = useRef<LocalFileHandle | null>(null)
+  const sourceFileNameRef = useRef<string | null>(null)
+  const sourceGenerationRef = useRef(0)
 
   useEffect(() => { workflowRef.current = workflow }, [workflow])
   useEffect(() => { positionsRef.current = positions }, [positions])
   useEffect(() => { historyRef.current = history }, [history])
   useEffect(() => () => {
     if (historyTimerRef.current) window.clearTimeout(historyTimerRef.current)
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current)
   }, [])
 
   useEffect(() => {
@@ -439,15 +449,58 @@ function App() {
     replaceHistory(next)
   }, [replaceHistory])
 
+  const queueWorkflowSave = useCallback((contents: string, revision: number, mode: 'auto' | 'manual') => {
+    const handle = sourceFileRef.current
+    const fileName = sourceFileNameRef.current ?? handle?.name
+    const sourceGeneration = sourceGenerationRef.current
+    if (!handle || !loadedSourceRef.current) return Promise.resolve()
+
+    autosaveQueueRef.current = autosaveQueueRef.current.catch(() => undefined).then(async () => {
+      if (sourceFileRef.current !== handle || !loadedSourceRef.current || !isCurrentAutosaveSource(sourceGeneration, sourceGenerationRef.current)) return
+      try {
+        const writable = await handle.createWritable()
+        await writable.write(contents)
+        await writable.close()
+        if (sourceFileRef.current !== handle || !isCurrentAutosaveSource(sourceGeneration, sourceGenerationRef.current)) return
+        savedRevisionRef.current = Math.max(savedRevisionRef.current, revision)
+        if (revision === autosaveRevisionRef.current) {
+          setNotice(mode === 'auto' ? `Cambios guardados automáticamente en ${fileName}` : `Cambios guardados en ${fileName}`)
+          setImportError(null)
+        }
+      } catch (error) {
+        if (sourceFileRef.current !== handle || !isCurrentAutosaveSource(sourceGeneration, sourceGenerationRef.current)) return
+        setImportError(error instanceof Error ? `No se ha podido guardar ${fileName}: ${error.message}` : 'No se ha podido guardar el archivo YAML.')
+      }
+    })
+    return autosaveQueueRef.current
+  }, [])
+
+  const scheduleAutosave = useCallback(() => {
+    if (!shouldScheduleAutosave({
+      hasWritableSource: Boolean(sourceFileRef.current),
+      hasLoadedWorkflow: loadedSourceRef.current,
+      changeRevision: autosaveRevisionRef.current,
+      savedRevision: savedRevisionRef.current,
+    })) return
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null
+      const revision = autosaveRevisionRef.current
+      void queueWorkflowSave(stringify(workflowRef.current), revision, 'auto')
+    }, AUTOSAVE_DELAY_MS)
+  }, [queueWorkflowSave])
+
   const applyChange = useCallback((nextWorkflow: WorkflowRecipe, nextPositions: Record<string, Position>, message?: string) => {
     workflowRef.current = nextWorkflow
     positionsRef.current = nextPositions
     setWorkflow(nextWorkflow)
     setPositions(nextPositions)
-    setNotice(message ?? 'Cambios guardados en el modelo YAML')
+    setNotice(message ?? 'Cambios pendientes de guardado automático')
     setImportError(null)
     recordHistory(nextWorkflow, nextPositions, message ?? 'Edición del workflow')
-  }, [recordHistory])
+    autosaveRevisionRef.current += 1
+    scheduleAutosave()
+  }, [recordHistory, scheduleAutosave])
 
   const updateWorkflow = useCallback((next: WorkflowRecipe, message?: string) => {
     applyChange(next, positionsRef.current, message)
@@ -649,6 +702,13 @@ function App() {
       setNotice(restoredHistory ? `Historial local recuperado para ${file.name}` : `Abierto ${file.name}`)
       setImportError(null)
       setSelectedStepId(activeSnapshot.workflow.steps[0]?.id ?? null)
+      sourceGenerationRef.current += 1
+      sourceFileRef.current = handle ?? null
+      sourceFileNameRef.current = file.name
+      loadedSourceRef.current = Boolean(handle)
+      autosaveRevisionRef.current = 0
+      savedRevisionRef.current = 0
+      if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current)
       setSourceFile(handle ?? null)
       setSourceFileName(file.name)
       if (historyDirectory && !restoredHistory) scheduleHistoryPersistence()
@@ -713,22 +773,14 @@ function App() {
   }, [openWorkflowFromFolder])
 
   const saveWorkflowFile = useCallback(async () => {
-    if (!sourceFile) return
-
-    try {
-      const writable = await sourceFile.createWritable()
-      await writable.write(serializedYaml)
-      await writable.close()
-      setNotice(`Cambios guardados en ${sourceFileName ?? sourceFile.name}`)
-      setImportError(null)
-    } catch (error) {
-      setImportError(
-        error instanceof Error
-          ? `No se ha podido guardar ${sourceFileName ?? sourceFile.name}: ${error.message}`
-          : 'No se ha podido guardar el archivo YAML.',
-      )
+    if (!sourceFileRef.current || !loadedSourceRef.current) return
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
     }
-  }, [serializedYaml, sourceFile, sourceFileName])
+    const revision = autosaveRevisionRef.current
+    await queueWorkflowSave(stringify(workflowRef.current), revision, 'manual')
+  }, [queueWorkflowSave])
 
 
   return (
