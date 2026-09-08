@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { catalogFreshness, safeProjectSkillPath, validateSkillCatalog } from '../skillCatalog'
+import { catalogFreshness, safeProjectSkillPath, skillCatalogOptions, validateSkillCatalog } from '../skillCatalog'
 
 describe('skill catalog manifest validation', () => {
   const generatedAt = '2026-09-07T12:00:00.000Z'
@@ -96,4 +96,26 @@ it('accepts a global Skill when optional globalRoots is absent', () => {
     globalSkills: [{ name: 'global', origin: 'global', status: 'valid', globalRoot: 'codex', description: 'Global' }],
   })
   expect(result.catalog?.globalSkills[0]?.name).toBe('global')
+})
+
+describe('skill catalog selector options', () => {
+  it('offers eligible project and global Skills with their descriptions', () => {
+    const result = validateSkillCatalog({
+      schemaVersion: 1, generatedAt: '2026-09-07T12:00:00.000Z', generator: { version: 'skill-discovery/1.0' },
+      projectSkills: [
+        { name: 'project-plan', description: 'Planifica cambios.', origin: 'project', relativePath: '.agents/skills/project-plan', status: 'valid' },
+        { name: 'broken', origin: 'project', status: 'invalid' },
+      ],
+      globalSkills: [{ name: 'global-review', description: 'Revisa resultados.', origin: 'global', globalRoot: 'codex', status: 'missing-description' }],
+    })
+
+    expect(skillCatalogOptions(result.catalog)).toEqual([
+      { name: 'project-plan', description: 'Planifica cambios.', origin: 'project' },
+      { name: 'global-review', description: 'Revisa resultados.', origin: 'global' },
+    ])
+  })
+
+  it('returns no selector options without a valid catalog', () => {
+    expect(skillCatalogOptions(null)).toEqual([])
+  })
 })

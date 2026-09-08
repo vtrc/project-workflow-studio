@@ -7,6 +7,7 @@ import type {
   WorkflowStep,
 } from '../types'
 import { orchestratorDefaults, resolveSkill, resolveStep } from '../workflow'
+import { skillCatalogOptions, type SkillCatalog } from '../skillCatalog'
 
 interface InspectorProps {
   workflow: WorkflowRecipe
@@ -16,6 +17,9 @@ interface InspectorProps {
   onStepChange: (id: string, update: (step: WorkflowStep) => WorkflowStep) => void
   onDuplicateStep: (id: string) => void
   onDeleteStep: (id: string) => void
+  skillCatalog: SkillCatalog | null
+  onReloadSkills: () => void
+  canReloadSkills: boolean
 }
 
 type HelpOption = {
@@ -457,12 +461,15 @@ function InheritedTextField({
   )
 }
 
-function StepInspector({ workflow, step, onChange, onDuplicate, onDelete }: {
+function StepInspector({ workflow, step, onChange, onDuplicate, onDelete, skillCatalog, onReloadSkills, canReloadSkills }: {
   workflow: WorkflowRecipe
   step: WorkflowStep
   onChange: (update: (current: WorkflowStep) => WorkflowStep) => void
   onDuplicate: () => void
   onDelete: () => void
+  skillCatalog: SkillCatalog | null
+  onReloadSkills: () => void
+  canReloadSkills: boolean
 }) {
   const updateSkill = (index: number, patch: Partial<SkillBinding>) => onChange((current) => ({
     ...current,
@@ -473,6 +480,7 @@ function StepInspector({ workflow, step, onChange, onDuplicate, onDelete }: {
   const resolved = resolveStep(workflow, step)
   const rootDelegationSource = workflow.default_delegation === undefined ? 'el default del orquestador' : 'los valores del workflow'
   const rootBlockedSource = workflow.default_on_blocked === undefined ? 'el default del orquestador' : 'los valores del workflow'
+  const catalogOptions = skillCatalogOptions(skillCatalog)
 
   return (
     <div className="inspector-form">
@@ -488,9 +496,14 @@ function StepInspector({ workflow, step, onChange, onDuplicate, onDelete }: {
       <section className="field-group">
         <div className="field-group-header">
           <h3>Skills</h3>
-          <button className="button button-secondary button-small" type="button" onClick={() => onChange((current) => ({ ...current, skills: [...current.skills, { name: 'new-skill', role: 'primary' }] }))}>
-            <Plus size={14} aria-hidden="true" /> Añadir
-          </button>
+          <div className="skill-section-actions">
+            <button className="button button-secondary button-small button-refresh-skills" type="button" onClick={onReloadSkills} disabled={!canReloadSkills} aria-label="Actualizar Skills locales desde el catálogo" title="Recargar las Skills locales desde skill-catalog.json">
+              Actualizar Skills
+            </button>
+            <button className="button button-secondary button-small" type="button" onClick={() => onChange((current) => ({ ...current, skills: [...current.skills, { name: catalogOptions[0]?.name ?? 'new-skill', role: 'primary' }] }))}>
+              <Plus size={14} aria-hidden="true" /> Añadir
+            </button>
+          </div>
         </div>
         <p className="field-helper">Indica las Skills que participan en esta etapa. Sus opciones poco frecuentes están disponibles al desplegar cada una.</p>
         {step.skills.length === 0 ? <div className="empty-skills">Aún no has añadido ninguna Skill a esta etapa.</div> : step.skills.map((skill, index) => {
@@ -499,7 +512,7 @@ function StepInspector({ workflow, step, onChange, onDuplicate, onDelete }: {
           return (
             <div className="skill-row" key={`${skill.name}-${index}`}>
               <div className="skill-row-top"><span>Skill {index + 1}</span><button className="icon-button remove-skill" type="button" aria-label={`Eliminar Skill ${skill.name}`} onClick={() => onChange((current) => ({ ...current, skills: current.skills.filter((_, skillIndex) => skillIndex !== index) }))}><Trash2 size={14} aria-hidden="true" /></button></div>
-              <div className="field"><FieldLabel htmlFor={`skill-name-${index}`} label="Nombre" help={fieldHelp.skillName} /><input id={`skill-name-${index}`} value={skill.name} onChange={(event) => updateSkill(index, { name: event.target.value })} /><FieldEffect>{skill.name.trim() ? `Buscará la Skill local “${skill.name}”.` : 'Escribe el nombre exacto de una Skill local disponible.'}</FieldEffect></div>
+              <div className="field"><FieldLabel htmlFor={`skill-name-${index}`} label="Nombre" help={fieldHelp.skillName} />{catalogOptions.length > 0 ? <select id={`skill-name-${index}`} value={skill.name} onChange={(event) => updateSkill(index, { name: event.target.value })} aria-label={`Nombre de la Skill ${index + 1} desde el catálogo local`}><option value="" disabled>Selecciona una Skill</option>{skill.name && !catalogOptions.some((option) => option.name === skill.name) && <option value={skill.name}>{skill.name} — No incluida en el catálogo actual</option>}{catalogOptions.map((option) => <option key={`${option.origin}:${option.name}`} value={option.name}>{option.name} — {option.description}</option>)}</select> : <input id={`skill-name-${index}`} value={skill.name} onChange={(event) => updateSkill(index, { name: event.target.value })} />}<FieldEffect>{catalogOptions.length > 0 ? 'Selecciona una Skill del catálogo local; el nombre se guardará en la receta.' : skill.name.trim() ? `Buscará la Skill local “${skill.name}”.` : 'Escribe el nombre exacto de una Skill local disponible.'}</FieldEffect></div>
               <div className="field"><FieldLabel htmlFor={`skill-role-${index}`} label="Papel" help={fieldHelp.skillRole} /><select id={`skill-role-${index}`} value={skill.role} onChange={(event) => updateSkill(index, { role: event.target.value as SkillRole })}><option value="primary">Principal</option><option value="supporting">Apoyo</option><option value="review">Revisión</option><option value="fallback">Respaldo</option></select></div>
               <details className="advanced-disclosure">
                 <summary>Opciones de esta Skill</summary>
@@ -553,7 +566,7 @@ function WorkflowInspector({ workflow, validationIssues, onChange }: { workflow:
   )
 }
 
-export function Inspector({ workflow, selectedStep, validationIssues, onWorkflowChange, onStepChange, onDuplicateStep, onDeleteStep }: InspectorProps) {
+export function Inspector({ workflow, selectedStep, validationIssues, onWorkflowChange, onStepChange, onDuplicateStep, onDeleteStep, skillCatalog, onReloadSkills, canReloadSkills }: InspectorProps) {
   if (!selectedStep) return <WorkflowInspector workflow={workflow} validationIssues={validationIssues} onChange={onWorkflowChange} />
-  return <StepInspector workflow={workflow} step={selectedStep} onChange={(update) => onStepChange(selectedStep.id, update)} onDuplicate={() => onDuplicateStep(selectedStep.id)} onDelete={() => onDeleteStep(selectedStep.id)} />
+  return <StepInspector workflow={workflow} step={selectedStep} onChange={(update) => onStepChange(selectedStep.id, update)} onDuplicate={() => onDuplicateStep(selectedStep.id)} onDelete={() => onDeleteStep(selectedStep.id)} skillCatalog={skillCatalog} onReloadSkills={onReloadSkills} canReloadSkills={canReloadSkills} />
 }

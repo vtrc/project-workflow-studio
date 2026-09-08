@@ -152,3 +152,21 @@ export function catalogFreshness(catalog: SkillCatalog | null, now = new Date())
   if (!catalog) return 'missing'
   return now.getTime() - Date.parse(catalog.generatedAt) > SKILL_CATALOG_STALE_AFTER_MS ? 'stale' : 'current'
 }
+
+export type SkillCatalogOption = {
+  name: string
+  description: string
+  origin: SkillCatalogOrigin
+}
+
+/** Returns selectable catalog Skills in the manifest's validated stable order. */
+export function skillCatalogOptions(catalog: SkillCatalog | null): SkillCatalogOption[] {
+  if (!catalog) return []
+  return [...catalog.projectSkills, ...catalog.globalSkills]
+    .filter((entry) => entry.status === 'valid' || entry.status === 'missing-description')
+    .map((entry) => ({
+      name: entry.name,
+      description: entry.description ?? 'Sin descripción declarada.',
+      origin: entry.origin,
+    }))
+}

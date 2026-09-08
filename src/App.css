@@ -510,16 +510,11 @@
 .skill-catalog-note.is-invalid { color: var(--color-danger); border-color: var(--color-danger-border); background: var(--color-danger-bg); }
 .skill-catalog-note.is-stale { color: var(--color-warning); background: var(--color-warning-bg); }
 .skill-catalog-help { font-size: 0.68rem; }
-.skill-catalog-group { margin-top: 15px; }
-.skill-catalog-group h3 { display: flex; align-items: center; justify-content: space-between; margin: 0; color: var(--color-text-muted); font-size: 0.71rem; }
-.skill-catalog-group h3 span { display: inline-grid; min-width: 20px; place-items: center; padding: 2px 5px; border-radius: 999px; color: var(--color-text-subtle); background: var(--color-surface-subtle); font-size: 0.65rem; }
-.skill-catalog-list { display: grid; gap: 7px; margin: 9px 0 0; padding: 0; list-style: none; }
-.skill-catalog-entry { padding: 9px 10px; border: 1px solid var(--color-border); border-radius: 7px; background: var(--color-surface-raised); }
-.skill-catalog-entry-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.skill-catalog-entry strong { min-width: 0; overflow: hidden; color: var(--color-text); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
-.skill-catalog-entry p { margin: 5px 0 0; color: var(--color-text-muted); font-size: 0.7rem; line-height: 1.35; }
-.skill-catalog-entry small { display: block; margin-top: 6px; color: var(--color-text-subtle); font-size: 0.64rem; }
-.skill-status { flex: 0 0 auto; padding: 3px 5px; border-radius: 999px; background: var(--color-accent-soft); color: var(--color-success); font-size: 0.61rem; font-weight: 740; }
-.skill-status-missing-description { color: var(--color-warning); background: var(--color-warning-bg); }
-.skill-status-invalid, .skill-status-conflict { color: var(--color-danger); background: var(--color-danger-bg); }
 @media (max-width: 650px) { .skill-catalog-heading { align-items: center; } }
+
+.skill-section-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+@media (max-width: 650px) {
+  .skill-section-actions { gap: 5px; }
+  .skill-section-actions .button-small { min-width: 32px; padding-inline: 7px; font-size: 0.7rem; }
+  .button-refresh-skills { max-width: 112px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}

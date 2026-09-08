@@ -893,7 +893,6 @@ function App() {
             catalog={skillCatalog}
             state={skillCatalogState}
             error={skillCatalogError}
-            onReload={reloadSkillCatalog}
             canReload={Boolean(skillCatalogRootRef.current)}
           />
 
@@ -905,6 +904,9 @@ function App() {
             onStepChange={updateStep}
             onDuplicateStep={duplicateStep}
             onDeleteStep={deleteStep}
+            skillCatalog={skillCatalog}
+            onReloadSkills={reloadSkillCatalog}
+            canReloadSkills={Boolean(skillCatalogRootRef.current)}
           />
         </aside>
       </section>
