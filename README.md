@@ -24,10 +24,42 @@ npm run build
 2. Pulsa **Abrir workflow**. En navegadores compatibles, elige la carpeta raíz del proyecto: el Studio abre `workflow.yaml` (o la ruta relativa y segura de `?path=ruta/relativa/workflow.yaml`) y crea o reutiliza el historial local.
 3. Si tu navegador no permite seleccionar carpetas, el mismo botón abre el selector de archivo. Ese modo conserva un historial temporal durante la sesión.
 4. Añade etapas y conéctalas mediante `on_success`.
-5. Configura entradas, salidas, delegación y las Skills de cada etapa.
+5. Configura las entradas, la delegación, el `step.prompt` opcional y las Skills de cada etapa. El artefacto de salida se deriva automáticamente.
 6. Revisa los avisos de validación y pulsa **Guardar cambios** para escribir sobre el mismo archivo.
 
 El Studio usa el selector de archivos del navegador: la ruta siempre la elige la persona. En navegadores compatibles con File System Access API, el permiso de escritura se solicita al guardar y no se sube el archivo a ningún servidor. Si el navegador no ofrece esa API, se puede importar el archivo y descargar una copia editada.
+
+## Formato canónico de artefactos
+
+Una receta describe la topología y el comportamiento de las etapas; el runtime registra la ejecución. Cada etapa tiene un único artefacto público: el identificador es `step.id` y su ruta se deriva como `.workflow/artifacts/<step.id>.md`.
+
+```yaml
+id: planning-flow
+steps:
+  - id: clarify-request
+    prompt: Reúne las restricciones que falten antes de planificar.
+    inputs: [user-request]
+    on_success: make-plan
+    skills:
+      - name: grilling
+        role: primary
+  - id: make-plan
+    inputs: [clarify-request]
+    on_success: complete
+    skills:
+      - name: writing-plans
+        role: primary
+      - name: plan-review
+        role: review
+```
+
+El orquestador entrega los resultados de una etapa a la siguiente mediante `inputs`: `user-request` o los IDs de etapas anteriores. `step.prompt` es contexto opcional para las Skills compuestas; no crea otro artefacto. Cada etapa debe contener exactamente una Skill con el papel `primary`, que publica el artefacto derivado. Las Skills `supporting` y `review` colaboran o revisan ese resultado, pero no publican artefactos públicos separados.
+
+Las revisiones, los checksums, el estado de ejecución, el linaje, las sustituciones y la gestión de colisiones pertenecen exclusivamente al registro de ejecución. Por tanto, `workflow.yaml` no incluye metadatos de revisión ni rutas de salida configurables por Skill.
+
+### Importación de recetas anteriores
+
+El Studio puede importar formatos anteriores cuando `artifact_root`, `outputs`, `artifact` y `output_file` repiten exactamente el ID y la ruta derivados. Al guardar, siempre exporta el formato canónico y elimina esos campos redundantes. Las recetas que definen una política `on_exists` o usan el papel `fallback` se rechazan con un diagnóstico de migración: esas decisiones ya no forman parte del YAML creado por usuarios.
 
 ## Historial local
 
