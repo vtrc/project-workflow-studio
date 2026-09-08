@@ -6,7 +6,7 @@ import type {
   WorkflowRecipe,
   WorkflowStep,
 } from '../types'
-import { orchestratorDefaults, resolveSkill, resolveStep } from '../workflow'
+import { artifactIdForStep, artifactPathForStep, orchestratorDefaults, resolveSkill, resolveStep } from '../workflow'
 import { skillCatalogOptions, type SkillCatalog } from '../skillCatalog'
 
 interface InspectorProps {
@@ -45,11 +45,6 @@ const fieldHelp = {
   workflowId: {
     title: 'Nombre del workflow',
     description: 'Es la identidad estable de esta receta. Se exporta como id en el YAML.',
-  },
-  artifactRoot: {
-    title: 'Carpeta de resultados',
-    description: 'Define la ruta relativa al proyecto donde el workflow espera registrar sus artefactos.',
-    note: 'No crea una carpeta por sí sola; el cliente y las Skills deben poder escribir en ella.',
   },
   model: {
     title: 'Modelo',
@@ -129,10 +124,15 @@ const fieldHelp = {
     description: 'Son identificadores de artefactos que esta etapa consume.',
     note: 'Solo pueden usarse artefactos ya preparados y registrados por una etapa anterior.',
   },
-  outputs: {
-    title: 'Salidas',
-    description: 'Son identificadores de los artefactos que la etapa declara como resultado.',
-    note: 'Una Skill concreta debe ser la propietaria clara de cada archivo que produzca.',
+  prompt: {
+    title: 'Prompt de la etapa',
+    description: 'Añade contexto opcional para las Skills compuestas de esta etapa.',
+    note: 'No sustituye las instrucciones de una Skill ni se convierte en un artefacto independiente.',
+  },
+  artifact: {
+    title: 'Artefacto derivado',
+    description: 'Cada etapa publica un único artefacto con su identificador y ruta derivados.',
+    note: 'La ruta y las revisiones las administra el runtime; no se editan en la receta.',
   },
   skillName: {
     title: 'Nombre de la Skill',
@@ -145,7 +145,6 @@ const fieldHelp = {
       { value: 'Principal', description: 'Realiza el trabajo principal de la etapa.' },
       { value: 'Apoyo', description: 'Aporta trabajo de apoyo al resultado principal.' },
       { value: 'Revisión', description: 'Revisa o evalúa el resultado de otras Skills.' },
-      { value: 'Respaldo', description: 'Solo puede activarse en una etapa secuencial después de que falle una Skill obligatoria que no sea de respaldo.' },
     ],
   },
   skillInvocation: {
@@ -155,15 +154,6 @@ const fieldHelp = {
       { value: 'Componer en el workflow', description: 'El workflow aplica las instrucciones de la Skill local dentro del contexto activo.' },
       { value: 'Requiere al usuario', description: 'Exige una acción explícita del usuario; no permite un flujo totalmente automático.' },
       { value: 'Si el cliente lo permite', description: 'Solo se usa cuando el cliente demuestra que admite esa forma de invocación.' },
-    ],
-  },
-  onExists: {
-    title: 'Si ya existe el archivo',
-    description: 'Define qué hace la Skill cuando la ruta de salida ya contiene un archivo.',
-    options: [
-      { value: 'Falla', description: 'Falla para evitar sobrescribir información existente.' },
-      { value: 'Sobrescribe', description: 'Sobrescribe el archivo solo si esta Skill es su propietaria.' },
-      { value: 'Crea una versión', description: 'Crea y registra una nueva versión del archivo.' },
     ],
   },
   nextStep: {
@@ -491,6 +481,20 @@ function StepInspector({ workflow, step, onChange, onDuplicate, onDelete, skillC
           <input id="step-id" value={step.id} onChange={(event) => onChange((current) => ({ ...current, id: event.target.value }))} />
           <FieldEffect>{step.id.trim() ? `La etapa se exportará con el identificador “${step.id}”.` : 'Escribe un identificador único para esta etapa.'}</FieldEffect>
         </div>
+        <div className="field">
+          <FieldLabel htmlFor="step-prompt" label="Prompt" help={fieldHelp.prompt} />
+          <textarea id="step-prompt" value={step.prompt ?? ''} onChange={(event) => onChange((current) => ({ ...current, prompt: event.target.value.trim() || undefined }))} />
+          <FieldEffect>{step.prompt?.trim() ? 'Este contexto se exportará junto con la etapa.' : 'Opcional: añade contexto que las Skills no reciban ya por sus instrucciones.'}</FieldEffect>
+        </div>
+      </section>
+
+      <section className="field-group">
+        <div className="field-group-header"><h3>Artefacto de la etapa</h3></div>
+        <div className="two-fields">
+          <div className="field"><FieldLabel htmlFor="step-artifact-id" label="Identificador" help={fieldHelp.artifact} /><input id="step-artifact-id" value={artifactIdForStep(step)} readOnly /></div>
+          <div className="field"><FieldLabel htmlFor="step-artifact-path" label="Ruta" help={fieldHelp.artifact} /><input id="step-artifact-path" value={artifactPathForStep(step)} readOnly /></div>
+        </div>
+        <FieldEffect>La Skill principal publica este único artefacto; las Skills de apoyo y revisión aportan contexto.</FieldEffect>
       </section>
 
       <section className="field-group">
@@ -513,15 +517,13 @@ function StepInspector({ workflow, step, onChange, onDuplicate, onDelete, skillC
             <div className="skill-row" key={`${skill.name}-${index}`}>
               <div className="skill-row-top"><span>Skill {index + 1}</span><button className="icon-button remove-skill" type="button" aria-label={`Eliminar Skill ${skill.name}`} onClick={() => onChange((current) => ({ ...current, skills: current.skills.filter((_, skillIndex) => skillIndex !== index) }))}><Trash2 size={14} aria-hidden="true" /></button></div>
               <div className="field"><FieldLabel htmlFor={`skill-name-${index}`} label="Nombre" help={fieldHelp.skillName} />{catalogOptions.length > 0 ? <select id={`skill-name-${index}`} value={skill.name} onChange={(event) => updateSkill(index, { name: event.target.value })} aria-label={`Nombre de la Skill ${index + 1} desde el catálogo local`}><option value="" disabled>Selecciona una Skill</option>{skill.name && !catalogOptions.some((option) => option.name === skill.name) && <option value={skill.name}>{skill.name} — No incluida en el catálogo actual</option>}{catalogOptions.map((option) => <option key={`${option.origin}:${option.name}`} value={option.name}>{option.name} — {option.description}</option>)}</select> : <input id={`skill-name-${index}`} value={skill.name} onChange={(event) => updateSkill(index, { name: event.target.value })} />}<FieldEffect>{catalogOptions.length > 0 ? 'Selecciona una Skill del catálogo local; el nombre se guardará en la receta.' : skill.name.trim() ? `Buscará la Skill local “${skill.name}”.` : 'Escribe el nombre exacto de una Skill local disponible.'}</FieldEffect></div>
-              <div className="field"><FieldLabel htmlFor={`skill-role-${index}`} label="Papel" help={fieldHelp.skillRole} /><select id={`skill-role-${index}`} value={skill.role} onChange={(event) => updateSkill(index, { role: event.target.value as SkillRole })}><option value="primary">Principal</option><option value="supporting">Apoyo</option><option value="review">Revisión</option><option value="fallback">Respaldo</option></select></div>
+              <div className="field"><FieldLabel htmlFor={`skill-role-${index}`} label="Papel" help={fieldHelp.skillRole} /><select id={`skill-role-${index}`} value={skill.role} onChange={(event) => updateSkill(index, { role: event.target.value as SkillRole })}><option value="primary">Principal</option><option value="supporting">Apoyo</option><option value="review">Revisión</option></select></div>
               <details className="advanced-disclosure">
                 <summary>Opciones de esta Skill</summary>
                 <InheritedSelect id={`skill-required-${index}`} label="Participación" help={fieldHelp.skillRole} value={skill.required === undefined ? undefined : String(skill.required) as 'true' | 'false'} effective={String(skillResolved.required) as 'true' | 'false'} source="el default del orquestador" options={[{ value: 'true', label: 'Obligatoria' }, { value: 'false', label: 'Opcional' }]} onChange={(value) => updateSkill(index, { required: value === undefined ? undefined : value === 'true' })} />
                 <InheritedSelect id={`skill-invocation-${index}`} label="Aplicación" help={fieldHelp.skillInvocation} value={skill.invocation} effective={skillResolved.invocation} source={invocationSource} options={[{ value: 'compose', label: 'Componer en el workflow' }, { value: 'user_explicit', label: 'Requiere al usuario' }, { value: 'host_permitted', label: 'Si el cliente lo permite' }]} onChange={(invocation) => updateSkill(index, { invocation })} />
                 <InheritedTextField id={`skill-model-${index}`} label="Modelo" help={fieldHelp.model} value={skill.model} effective={skillResolved.model} source="la etapa o el workflow" onChange={(model) => updateSkill(index, { model })} />
                 <InheritedTextField id={`skill-reasoning-${index}`} label="Razonamiento" help={fieldHelp.reasoning} value={skill.reasoning_effort} effective={skillResolved.reasoning_effort} source="la etapa o el workflow" onChange={(reasoning_effort) => updateSkill(index, { reasoning_effort })} />
-                <div className="two-fields"><div className="field"><FieldLabel htmlFor={`skill-artifact-${index}`} label="Artefacto" help={fieldHelp.outputs} /><input id={`skill-artifact-${index}`} value={skill.artifact ?? ''} onChange={(event) => updateSkill(index, { artifact: event.target.value.trim() || undefined })} /></div><div className="field"><FieldLabel htmlFor={`skill-output-${index}`} label="Archivo de salida" help={fieldHelp.artifactRoot} /><input id={`skill-output-${index}`} value={skill.output_file ?? ''} onChange={(event) => updateSkill(index, { output_file: event.target.value.trim() || undefined })} /></div></div>
-                <InheritedSelect id={`skill-on-exists-${index}`} label="Si ya existe el archivo" help={fieldHelp.onExists} value={skill.on_exists} effective={skillResolved.on_exists} source="el default del orquestador" options={[{ value: 'fail', label: 'Falla' }, { value: 'overwrite', label: 'Sobrescribe' }, { value: 'version', label: 'Crea una versión' }]} onChange={(on_exists) => updateSkill(index, { on_exists })} />
               </details>
             </div>
           )
@@ -547,7 +549,6 @@ function StepInspector({ workflow, step, onChange, onDuplicate, onDelete, skillC
           <InheritedTextField id="step-model" label="Modelo" help={fieldHelp.model} value={step.model} effective={resolved.model} source={workflow.model === undefined ? 'el default del orquestador' : 'los valores del workflow'} onChange={(model) => onChange((current) => ({ ...current, model }))} />
           <InheritedTextField id="step-reasoning" label="Razonamiento" help={fieldHelp.reasoning} value={step.reasoning_effort} effective={resolved.reasoning_effort} source={workflow.reasoning_effort === undefined ? 'el default del orquestador' : 'los valores del workflow'} onChange={(reasoning_effort) => onChange((current) => ({ ...current, reasoning_effort }))} />
           <TokenField label="Entradas" helper="Resultados que esta etapa necesita recibir." help={fieldHelp.inputs} values={resolved.inputs} emptyEffect="Esta etapa no necesita artefactos de etapas anteriores." valuesEffect={(values) => `Usará ${values.length === 1 ? 'el artefacto' : 'los artefactos'} ${values.map((value) => `“${value}”`).join(', ')}.`} onChange={(inputs) => onChange((current) => ({ ...current, inputs }))} />
-          <TokenField label="Salidas" helper="Resultados que esta etapa deja preparados para las siguientes." help={fieldHelp.outputs} values={resolved.outputs} emptyEffect="Esta etapa no declara artefactos de salida." valuesEffect={(values) => `Declarará ${values.length === 1 ? 'el artefacto' : 'los artefactos'} ${values.map((value) => `“${value}”`).join(', ')} como salida.`} onChange={(outputs) => onChange((current) => ({ ...current, outputs }))} />
         </div>
       </details>
 
@@ -559,7 +560,7 @@ function StepInspector({ workflow, step, onChange, onDuplicate, onDelete, skillC
 function WorkflowInspector({ workflow, validationIssues, onChange }: { workflow: WorkflowRecipe; validationIssues: string[]; onChange: (change: Partial<WorkflowRecipe>) => void }) {
   return (
     <div className="inspector-form">
-      <section className="field-group"><div className="field-group-header"><h3>Workflow</h3></div><div className="field"><FieldLabel htmlFor="workflow-id" label="Nombre" help={fieldHelp.workflowId} /><input id="workflow-id" value={workflow.id} onChange={(event) => onChange({ id: event.target.value })} /></div><div className="field"><FieldLabel htmlFor="artifact-root" label="Carpeta de resultados" help={fieldHelp.artifactRoot} /><input id="artifact-root" value={workflow.artifact_root} onChange={(event) => onChange({ artifact_root: event.target.value })} /></div></section>
+      <section className="field-group"><div className="field-group-header"><h3>Workflow</h3></div><div className="field"><FieldLabel htmlFor="workflow-id" label="Nombre" help={fieldHelp.workflowId} /><input id="workflow-id" value={workflow.id} onChange={(event) => onChange({ id: event.target.value })} /></div></section>
       <details className="advanced-section"><summary>Valores por defecto del workflow</summary><div className="advanced-section-content"><InheritedTextField id="workflow-model" label="Modelo" help={fieldHelp.model} value={workflow.model} effective={orchestratorDefaults.model} source="el default del orquestador" onChange={(model) => onChange({ model })} /><InheritedTextField id="reasoning-effort" label="Razonamiento" help={fieldHelp.reasoning} value={workflow.reasoning_effort} effective={orchestratorDefaults.reasoning_effort} source="el default del orquestador" onChange={(reasoning_effort) => onChange({ reasoning_effort })} /><InheritedSelect id="default-delegation" label="Delegación" help={fieldHelp.defaultDelegation} value={workflow.default_delegation} effective={orchestratorDefaults.delegation} source="el default del orquestador" options={[{ value: 'inline', label: 'Agente actual' }, { value: 'subagent', label: 'Subagente' }, { value: 'auto', label: 'Decide el cliente' }]} onChange={(default_delegation) => onChange({ default_delegation })} /><InheritedSelect id="default-blocked" label="Si se bloquea" help={fieldHelp.onBlocked} value={workflow.default_on_blocked} effective={orchestratorDefaults.on_blocked} source="el default del orquestador" options={[{ value: 'ask_user', label: 'Pide ayuda' }, { value: 'stop', label: 'Detiene el flujo' }]} onChange={(default_on_blocked) => onChange({ default_on_blocked })} /><InheritedSelect id="default-invocation" label="Aplicación de Skills" help={fieldHelp.defaultInvocation} value={workflow.default_invocation} effective={orchestratorDefaults.invocation} source="el default del orquestador" options={[{ value: 'compose', label: 'Componer en el workflow' }, { value: 'user_explicit', label: 'Requiere al usuario' }, { value: 'host_permitted', label: 'Si el cliente lo permite' }]} onChange={(default_invocation) => onChange({ default_invocation })} /></div></details>
       <section className="field-group"><div className="field-group-header"><h3>Estado</h3></div><div className="workflow-settings-note">El YAML sigue siendo el formato de origen: los valores heredados no se escribirán hasta que los configures explícitamente.</div>{validationIssues.length > 0 && <ul className="validation-list" aria-label="Avisos de validación">{validationIssues.map((issue) => <li key={issue}>• {issue}</li>)}</ul>}</section>
     </div>

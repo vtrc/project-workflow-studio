@@ -559,18 +559,7 @@ function App() {
       if (!source) return
 
       const id = nextAvailableId(workflow.steps, `${source.id}-copy`)
-      const copy: WorkflowStep = {
-        ...source,
-        id,
-        outputs: source.outputs?.map((output) => `${output}-copy`),
-        skills: source.skills.map((skill) => ({
-          ...skill,
-          artifact: skill.artifact ? `${skill.artifact}-copy` : undefined,
-          output_file: skill.output_file
-            ? skill.output_file.replace(/(\.md)?$/, '-copy$1')
-            : undefined,
-        })),
-      }
+      const copy: WorkflowStep = { ...source, id, skills: source.skills.map((skill) => ({ ...skill })) }
       const steps = [...workflow.steps]
       steps[sourceIndex] = { ...source, on_success: id }
       steps.splice(sourceIndex + 1, 0, copy)

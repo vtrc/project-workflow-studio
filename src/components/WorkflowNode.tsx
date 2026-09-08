@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { WorkflowRecipe, WorkflowStep } from '../types'
-import { resolveStep } from '../workflow'
+import { artifactIdForStep, artifactPathForStep, resolveStep } from '../workflow'
 
 export interface WorkflowNodeData {
   [key: string]: unknown
@@ -22,6 +22,8 @@ export function WorkflowNode({ data }: NodeProps) {
   const nodeData = data as WorkflowNodeData
   const { step, workflow, index, isSelected, activeSourceHandle, activeTargetHandles } = nodeData
   const resolved = resolveStep(workflow, step)
+  const artifactId = artifactIdForStep(step)
+  const artifactPath = artifactPathForStep(step)
   const targetClass = (handleId: string) =>
     `workflow-handle workflow-handle-target${activeTargetHandles.includes(handleId) ? ' is-active' : ''}`
   const sourceClass = (handleId: string) =>
@@ -54,7 +56,7 @@ export function WorkflowNode({ data }: NodeProps) {
         </div>
         <div>
           <span>PRODUCE</span>
-          <strong title={resolved.outputs.join(', ')}>{conciseList(resolved.outputs)}</strong>
+          <strong title={artifactPath}>{artifactId}</strong>
         </div>
       </div>
       <Handle className={sourceClass('top-source')} id="top-source" type="source" position={Position.Top} aria-label={`Salida superior de ${step.id}`} />
