@@ -18,6 +18,9 @@ const onBlockedModes: OnBlocked[] = ['ask_user', 'stop']
 const invocationModes: InvocationMode[] = ['compose', 'user_explicit', 'host_permitted']
 const skillRoles: SkillRole[] = ['primary', 'supporting', 'review']
 const legacyArtifactRoot = '.workflow/artifacts'
+const rootKeys = ['id', 'artifact_root', 'default_delegation', 'default_on_blocked', 'default_invocation', 'model', 'reasoning_effort', 'steps']
+const stepKeys = ['id', 'prompt', 'execution', 'completion', 'model', 'reasoning_effort', 'delegation', 'inputs', 'outputs', 'on_success', 'on_blocked', 'skills']
+const skillKeys = ['name', 'role', 'required', 'invocation', 'model', 'reasoning_effort', 'artifact', 'output_file', 'on_exists']
 
 export const orchestratorDefaults = {
   execution: 'sequential' as ExecutionMode,
@@ -76,9 +79,18 @@ function rejectRetiredField(path: string, detail: string): never {
   throw new Error(`Campo retirado “${path}”: ${detail}`)
 }
 
+function assertAllowedKeys(value: Record<string, unknown>, path: string, allowed: readonly string[]): void {
+  const unexpectedKey = Object.keys(value).find((key) => !allowed.includes(key))
+  if (unexpectedKey !== undefined) {
+    const field = path ? `${path}.${unexpectedKey}` : unexpectedKey
+    throw new Error(`Campo no permitido “${field}”.`)
+  }
+}
+
 function parseSkill(value: unknown, index: number, stepIndex: number, stepId: string): SkillBinding {
   if (!isRecord(value)) throw new Error(`Campo inválido “steps[${stepIndex}].skills[${index}]”: debe ser un objeto.`)
   const path = `steps[${stepIndex}].skills[${index}]`
+  assertAllowedKeys(value, path, skillKeys)
   const artifact = optionalString(value.artifact, `${path}.artifact`)
   if (artifact !== undefined && artifact !== artifactIdForStep({ id: stepId })) {
     rejectRetiredField(`${path}.artifact`, `debe coincidir con el id derivado “${artifactIdForStep({ id: stepId })}”.`)
@@ -111,6 +123,7 @@ function parseSkill(value: unknown, index: number, stepIndex: number, stepId: st
 
 function parseStep(value: unknown, index: number): WorkflowStep {
   if (!isRecord(value)) throw new Error(`Campo inválido “steps[${index}]”: debe ser un objeto.`)
+  assertAllowedKeys(value, `steps[${index}]`, stepKeys)
   if (!Array.isArray(value.skills)) throw new Error(`Campo obligatorio ausente “steps[${index}].skills”.`)
   const id = requiredString(value.id, `steps[${index}].id`)
   const outputs = optionalStrings(value.outputs, `steps[${index}].outputs`)
@@ -225,6 +238,7 @@ export function workflowFromYaml(source: string): WorkflowRecipe {
     throw new Error(`YAML inválido: ${error instanceof Error ? error.message : 'error de sintaxis'}`)
   }
   if (!isRecord(parsed)) throw new Error('El archivo debe contener un objeto YAML de workflow.')
+  assertAllowedKeys(parsed, '', rootKeys)
   if (!Array.isArray(parsed.steps)) throw new Error('El archivo YAML debe incluir una lista “steps”.')
   const artifactRoot = optionalString(parsed.artifact_root, 'artifact_root')
   if (artifactRoot !== undefined && artifactRoot !== legacyArtifactRoot) {

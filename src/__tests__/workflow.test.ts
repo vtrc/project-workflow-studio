@@ -80,6 +80,14 @@ steps:
       .toThrow('steps[0].skills[0].role')
   })
 
+  it.each([
+    ['revision', canonicalWorkflow.replace('steps:', 'revision: 4\nsteps:')],
+    ['steps[0].status', canonicalWorkflow.replace('prompt: Gather the missing constraints.', 'status: complete\n    prompt: Gather the missing constraints.')],
+    ['steps[0].skills[0].checksum', canonicalWorkflow.replace('role: primary', 'role: primary\n        checksum: abc123')],
+  ])('rejects unsupported runtime metadata at %s', (field, source) => {
+    expect(() => workflowFromYaml(source)).toThrow(field)
+  })
+
   it('validates one primary, preceding inputs, transitions, and non-empty skill lists', () => {
     const workflow = workflowFromYaml(canonicalWorkflow)
     expect(validateWorkflow(workflow)).toEqual([])
