@@ -2,7 +2,7 @@
 
 **Editor visual para diseñar, revisar y exportar recetas YAML de Project Workflow.**
 
-Project Workflow Studio ayuda a convertir un flujo de trabajo en un diagrama editable: etapas, transiciones, delegación, políticas de bloqueo y Skills. El resultado es una receta YAML que puede consumirse fuera del Studio.
+Project Workflow Studio ayuda a convertir un flujo de trabajo en un diagrama editable: etapas, dependencias, delegación y Skills. El resultado es una receta YAML que puede consumirse fuera del Studio.
 
 ## Inicio rápido
 
@@ -23,8 +23,8 @@ npm run build
 1. Abre el [Studio publicado](https://vtrc.github.io/project-workflow-studio/).
 2. Pulsa **Abrir workflow**. En navegadores compatibles, elige la carpeta raíz del proyecto: el Studio abre `workflow.yaml` (o la ruta relativa y segura de `?path=ruta/relativa/workflow.yaml`) y crea o reutiliza el historial local.
 3. Si tu navegador no permite seleccionar carpetas, el mismo botón abre el selector de archivo. Ese modo conserva un historial temporal durante la sesión.
-4. Añade etapas y conéctalas mediante `on_success`.
-5. Configura las entradas, la delegación, el `step.prompt` opcional y las Skills de cada etapa. El artefacto de salida se deriva automáticamente.
+4. Añade etapas y conéctalas mediante sus entradas `inputs`.
+5. Configura las entradas, la delegación, el `step.prompt` opcional y las Skills de cada etapa. El artefacto se deriva automáticamente.
 6. Revisa los avisos de validación y pulsa **Guardar cambios** para escribir sobre el mismo archivo.
 
 El Studio usa el selector de archivos del navegador: la ruta siempre la elige la persona. En navegadores compatibles con File System Access API, el permiso de escritura se solicita al guardar y no se sube el archivo a ningún servidor. Si el navegador no ofrece esa API, se puede importar el archivo y descargar una copia editada.
@@ -35,31 +35,42 @@ Una receta describe la topología y el comportamiento de las etapas; el runtime 
 
 ```yaml
 id: planning-flow
+default_delegation: subagent
 steps:
-  - id: clarify-request
+  - id: research
     prompt: Reúne las restricciones que falten antes de planificar.
-    inputs: [user-request]
-    on_success: make-plan
+    inputs: []
     skills:
       - name: grilling
         role: primary
   - id: make-plan
-    inputs: [clarify-request]
-    on_success: complete
+    inputs: [research]
     skills:
       - name: writing-plans
         role: primary
       - name: plan-review
         role: review
+  - id: review-plan
+    inputs: [research]
+    skills:
+      - name: plan-review
+        role: primary
+  - id: finalize
+    inputs: [make-plan, review-plan]
+    skills:
+      - name: synthesis
+        role: primary
 ```
 
-El orquestador entrega los resultados de una etapa a la siguiente mediante `inputs`: `user-request` o los IDs de etapas anteriores. `step.prompt` es contexto opcional para las Skills compuestas; no crea otro artefacto. Cada etapa debe contener exactamente una Skill con el papel `primary`, que publica el artefacto derivado. Las Skills `supporting` y `review` colaboran o revisan ese resultado, pero no publican artefactos públicos separados.
+`inputs` es el único borde declarado del grafo. Las etapas raíz usan `inputs: []`; varias etapas pueden consumir el mismo padre (fan-out), y una etapa puede esperar varios padres (fan-in). El orquestador prepara la conversación, todos los artefactos declarados y `step.prompt`, y delega una unidad completa al Step runner. El Step runner carga las Skills; cada etapa debe contener exactamente una Skill con el papel `primary`, que publica el artefacto derivado. Las Skills `supporting` y `review` aportan contexto, pero no publican artefactos públicos separados.
+
+Una etapa queda lista cuando todos los IDs de `inputs` tienen un artefacto registrado. Si una etapa se bloquea, el runtime conserva el estado y pregunta al usuario; no existe una política de bloqueo escrita en YAML.
 
 Las revisiones, los checksums, el estado de ejecución, el linaje, las sustituciones y la gestión de colisiones pertenecen exclusivamente al registro de ejecución. Por tanto, `workflow.yaml` no incluye metadatos de revisión ni rutas de salida configurables por Skill.
 
 ### Importación de recetas anteriores
 
-El Studio puede importar formatos anteriores cuando `artifact_root`, `outputs`, `artifact` y `output_file` repiten exactamente el ID y la ruta derivados. Al guardar, siempre exporta el formato canónico y elimina esos campos redundantes. Las recetas que definen una política `on_exists` o usan el papel `fallback` se rechazan con un diagnóstico de migración: esas decisiones ya no forman parte del YAML creado por usuarios.
+El Studio puede importar formatos anteriores cuando `artifact_root`, `outputs`, `artifact` y `output_file` repiten exactamente el ID y la ruta derivados. Al guardar, siempre exporta el formato canónico y elimina esos campos redundantes. Las recetas que usan `on_success`, `execution`, `completion`, `on_blocked`, `default_invocation`, `default_on_blocked`, `required`, `invocation` u otros overrides de binding se rechazan con un diagnóstico de migración específico: el grafo, la ejecución delegada, la finalización primaria y el bloqueo fijo ya sustituyen esas decisiones.
 
 ## Historial local
 
@@ -80,10 +91,10 @@ El Studio sigue automáticamente el tema claro u oscuro seleccionado en el siste
 
 ## Capacidades
 
-- Diagrama interactivo de etapas y transiciones.
+- Diagrama interactivo de etapas y dependencias.
 - Edición de propiedades del workflow y de cada etapa.
 - Importación y exportación de YAML.
-- Validación de identificadores, transiciones y asociaciones de Skills.
+- Validación de identificadores, raíces, ciclos, fan-out/fan-in y asociaciones de Skills.
 - Posicionamiento visual de los nodos del diagrama.
 - Deshacer, rehacer y restauración de versiones desde un historial visible.
 
