@@ -1,6 +1,6 @@
 import { Copy, Info, Plus, Trash2 } from 'lucide-react'
 import type { DelegationMode, SkillBinding, SkillRole, WorkflowRecipe, WorkflowStep } from '../types'
-import { artifactIdForStep, artifactPathForStep, orchestratorDefaults, resolveStep } from '../workflow'
+import { artifactIdForStep, artifactPathForStep, orderedInputsAfterToggle, orchestratorDefaults, resolveStep } from '../workflow'
 import { skillCatalogOptions, type SkillCatalog } from '../skillCatalog'
 
 interface InspectorProps {
@@ -44,8 +44,26 @@ function InheritedSelect({ id, label, value, effective, content, onChange, optio
 
 function InputsField({ workflow, step, onChange }: { workflow: WorkflowRecipe; step: WorkflowStep; onChange: (inputs: string[]) => void }) {
   const index = workflow.steps.findIndex((candidate) => candidate.id === step.id)
-  const preceding = workflow.steps.slice(0, index)
-  return <div className="field"><FieldLabel htmlFor="step-inputs" label="Entradas" content={help.inputs} /><p className="field-helper">Selecciona todos los artefactos de etapas anteriores que necesita esta etapa.</p><select id="step-inputs" multiple value={step.inputs} onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}>{preceding.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.id}</option>)}</select><p className="field-effect">{step.inputs.length === 0 ? 'Es una etapa raíz y no necesita artefactos anteriores.' : `Usará ${step.inputs.map((input) => `“${input}”`).join(', ')}.`}</p></div>
+  const preceding = index < 0 ? [] : workflow.steps.slice(0, index)
+  return <fieldset className="inputs-field" aria-describedby="step-inputs-help">
+    <legend className="inputs-legend"><span className="field-label">Entradas</span><span title={help.inputs.description} aria-label={`Información sobre ${help.inputs.title}`}><Info size={14} aria-hidden="true" /></span></legend>
+    <p id="step-inputs-help" className="field-helper">{preceding.length === 0 ? 'No hay etapas anteriores disponibles; esta etapa raíz usa inputs: [].' : 'Marca una o varias etapas anteriores que necesita esta etapa. Puedes seleccionar varias sin usar teclas modificadoras.'}</p>
+    {preceding.length > 0 && <div className="input-options">
+      {preceding.map((candidate) => {
+        const selected = step.inputs.includes(candidate.id)
+        return <label className={`input-option${selected ? ' is-selected' : ''}`} key={candidate.id}>
+          <input
+            id={`step-input-${candidate.id}`}
+            type="checkbox"
+            checked={selected}
+            onChange={() => onChange(orderedInputsAfterToggle(preceding, step.inputs, candidate.id))}
+          />
+          <span className="input-option-copy"><span className="input-option-id">{candidate.id}</span><span className="input-option-state">{selected ? 'Seleccionada' : 'Disponible'}</span></span>
+        </label>
+      })}
+    </div>}
+    <p className="field-effect" aria-live="polite">{step.inputs.length === 0 ? 'Es una etapa raíz y no necesita artefactos anteriores.' : `Usará ${step.inputs.map((input) => `“${input}”`).join(', ')}.`}</p>
+  </fieldset>
 }
 
 function StepInspector({ workflow, step, onChange, onDuplicate, onDelete, skillCatalog, onReloadSkills, canReloadSkills }: { workflow: WorkflowRecipe; step: WorkflowStep; onChange: (update: (current: WorkflowStep) => WorkflowStep) => void; onDuplicate: () => void; onDelete: () => void; skillCatalog: SkillCatalog | null; onReloadSkills: () => void; canReloadSkills: boolean }) {

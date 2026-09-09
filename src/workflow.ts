@@ -117,6 +117,12 @@ export function insertStepAfterParent(steps: WorkflowStep[], nextStep: WorkflowS
   if (parentIndex < 0) return [...steps, nextStep]
   return [...steps.slice(0, parentIndex + 1), nextStep, ...steps.slice(parentIndex + 1)]
 }
+export function orderedInputsAfterToggle(preceding: readonly WorkflowStep[], currentInputs: readonly string[], inputId: string): string[] {
+  const selected = new Set(currentInputs)
+  if (selected.has(inputId)) selected.delete(inputId)
+  else selected.add(inputId)
+  return preceding.filter((candidate) => selected.has(candidate.id)).map((candidate) => candidate.id)
+}
 export function successorIdsForStep(recipe: WorkflowRecipe, stepId: string): string[] { return recipe.steps.filter((step) => step.inputs.includes(stepId)).map((step) => step.id) }
 export function rootStepIds(recipe: WorkflowRecipe): string[] { return recipe.steps.filter((step) => step.inputs.length === 0).map((step) => step.id) }
 export function readyStepIds(recipe: WorkflowRecipe, readyArtifactIds: ReadonlySet<string>): string[] {
