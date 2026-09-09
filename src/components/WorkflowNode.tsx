@@ -39,7 +39,7 @@ export function WorkflowNode({ data }: NodeProps) {
         <span className="node-index">{index + 1}</span>
         <div>
           <h3>{step.id}</h3>
-          <p className="node-meta">{resolved.execution === 'parallel' ? 'Paralelo' : 'En orden'} · {resolved.delegation === 'subagent' ? 'Subagente' : 'Agente actual'}</p>
+          <p className="node-meta">{resolved.delegation === 'subagent' ? 'Subagente' : resolved.delegation === 'auto' ? 'Decide el cliente' : 'Agente actual'}</p>
         </div>
       </div>
 

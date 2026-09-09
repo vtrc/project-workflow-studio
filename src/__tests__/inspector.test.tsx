@@ -7,7 +7,6 @@ const step: WorkflowStep = {
   id: 'make-plan',
   prompt: 'Turn the clarified request into an executable plan.',
   inputs: ['clarify-request'],
-  on_success: 'complete',
   skills: [
     { name: 'writing-plans', role: 'primary' },
     { name: 'reviewer', role: 'review' },
@@ -16,6 +15,7 @@ const step: WorkflowStep = {
 
 const workflow: WorkflowRecipe = {
   id: 'planning-flow',
+  default_delegation: 'subagent',
   steps: [step],
 }
 

@@ -28,7 +28,6 @@ import {
   Workflow,
   X,
 } from 'lucide-react'
-import { stringify } from 'yaml'
 import { Inspector } from './components/Inspector'
 import { SkillCatalogPanel } from './components/SkillCatalogPanel'
 import { WorkflowNode, type WorkflowNodeData } from './components/WorkflowNode'
@@ -36,8 +35,10 @@ import {
   createEmptyStep,
   defaultWorkflow,
   nextAvailableId,
+  successorIdsForStep,
   validateWorkflow,
   workflowFromYaml,
+  workflowToYaml,
 } from './workflow'
 import type { WorkflowRecipe, WorkflowStep } from './types'
 import { catalogFreshness, validateSkillCatalog, type SkillCatalog } from './skillCatalog'
@@ -321,7 +322,7 @@ function App() {
   const selectedStep =
     workflow.steps.find((step) => step.id === selectedStepId) ?? null
   const validationIssues = useMemo(() => validateWorkflow(workflow), [workflow])
-  const serializedYaml = useMemo(() => stringify(workflow), [workflow])
+  const serializedYaml = useMemo(() => workflowToYaml(workflow), [workflow])
   const resolvedTheme = useMemo(() => getResolvedTheme(theme), [theme])
 
   const nodes = useMemo<Node<WorkflowNodeData>[]>(
@@ -335,16 +336,16 @@ function App() {
           workflow,
           isSelected: step.id === selectedStepId,
           index,
-          activeSourceHandle: step.on_success && step.on_success !== 'complete'
+          activeSourceHandle: successorIdsForStep(workflow, step.id)[0]
             ? `${getEdgeSides(
                 positions[step.id] ?? { x: 0, y: 0 },
-                positions[step.on_success] ?? { x: 0, y: 0 },
+                positions[successorIdsForStep(workflow, step.id)[0]!] ?? { x: 0, y: 0 },
               ).source}-source`
             : undefined,
-          activeTargetHandles: workflow.steps
-            .filter((candidate) => candidate.on_success === step.id)
-            .map((candidate) => `${getEdgeSides(
-              positions[candidate.id] ?? { x: 0, y: 0 },
+          activeTargetHandles: step.inputs
+            .filter((input) => workflow.steps.some((candidate) => candidate.id === input))
+            .map((input) => `${getEdgeSides(
+              positions[input] ?? { x: 0, y: 0 },
               positions[step.id] ?? { x: 0, y: 0 },
             ).target}-target`),
         },
@@ -354,34 +355,24 @@ function App() {
 
   const edges = useMemo<Edge[]>(
     () =>
-      workflow.steps.flatMap((step) => {
-        if (
-          !step.on_success ||
-          step.on_success === 'complete' ||
-          !workflow.steps.some((candidate) => candidate.id === step.on_success)
-        ) {
-          return []
-        }
-
-        const sourcePosition = positions[step.id] ?? { x: 0, y: 0 }
-        const targetPosition = positions[step.on_success] ?? { x: 0, y: 0 }
+      workflow.steps.flatMap((target) => target.inputs.flatMap((sourceId) => {
+        if (!workflow.steps.some((candidate) => candidate.id === sourceId)) return []
+        const sourcePosition = positions[sourceId] ?? { x: 0, y: 0 }
+        const targetPosition = positions[target.id] ?? { x: 0, y: 0 }
         const sides = getEdgeSides(sourcePosition, targetPosition)
-
-        return [
-          {
-            id: `${step.id}-${step.on_success}`,
-            source: step.id,
-            target: step.on_success,
-            sourceHandle: `${sides.source}-source`,
-            targetHandle: `${sides.target}-target`,
-            sourcePosition: flowPositionBySide[sides.source],
-            targetPosition: flowPositionBySide[sides.target],
-            type: 'smoothstep',
-            markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-            animated: step.id === selectedStepId,
-          },
-        ]
-      }),
+        return [{
+          id: `${sourceId}-${target.id}`,
+          source: sourceId,
+          target: target.id,
+          sourceHandle: `${sides.source}-source`,
+          targetHandle: `${sides.target}-target`,
+          sourcePosition: flowPositionBySide[sides.source],
+          targetPosition: flowPositionBySide[sides.target],
+          type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+          animated: sourceId === selectedStepId || target.id === selectedStepId,
+        }]
+      })),
     [positions, selectedStepId, workflow],
   )
 
@@ -486,7 +477,7 @@ function App() {
     autosaveTimerRef.current = window.setTimeout(() => {
       autosaveTimerRef.current = null
       const revision = autosaveRevisionRef.current
-      void queueWorkflowSave(stringify(workflowRef.current), revision, 'auto')
+      void queueWorkflowSave(workflowToYaml(workflowRef.current), revision, 'auto')
     }, AUTOSAVE_DELAY_MS)
   }, [queueWorkflowSave])
 
@@ -515,9 +506,9 @@ function App() {
       let steps = workflow.steps.map((step) => (step.id === stepId ? changed : step))
 
       if (changed.id !== stepId) {
-        steps = steps.map((step) =>
-          step.on_success === stepId ? { ...step, on_success: changed.id } : step,
-        )
+        steps = steps.map((step) => step.inputs.includes(stepId)
+          ? { ...step, inputs: step.inputs.map((input) => input === stepId ? changed.id : input) }
+          : step)
         const { [stepId]: oldPosition, ...rest } = positionsRef.current
         positionsRef.current = { ...rest, [changed.id]: oldPosition ?? { x: 0, y: 0 } }
         setSelectedStepId(changed.id)
@@ -531,15 +522,11 @@ function App() {
   const addStep = useCallback(() => {
     const id = nextAvailableId(workflow.steps, 'new-step')
     const parent = workflow.steps.find((step) => step.id === selectedStepId) ?? workflow.steps.at(-1)
-    const nextStep: WorkflowStep = {
-      ...createEmptyStep(id),
-      on_success: parent?.on_success ?? 'complete',
-    }
+    const nextStep: WorkflowStep = { ...createEmptyStep(id), inputs: parent ? [parent.id] : [] }
     const parentIndex = parent ? workflow.steps.findIndex((step) => step.id === parent.id) : -1
     const steps = parent
       ? [
           ...workflow.steps.slice(0, parentIndex),
-          { ...parent, on_success: id },
           nextStep,
           ...workflow.steps.slice(parentIndex + 1),
         ]
@@ -561,7 +548,6 @@ function App() {
       const id = nextAvailableId(workflow.steps, `${source.id}-copy`)
       const copy: WorkflowStep = { ...source, id, skills: source.skills.map((skill) => ({ ...skill })) }
       const steps = [...workflow.steps]
-      steps[sourceIndex] = { ...source, on_success: id }
       steps.splice(sourceIndex + 1, 0, copy)
       const placement = positionBelow(source.id, positionsRef.current)
       const nextPositions = { ...positionsRef.current, ...placement.shiftedPositions, [id]: placement.position }
@@ -577,15 +563,14 @@ function App() {
       const deleted = workflow.steps.find((step) => step.id === stepId)
       if (!deleted) return
 
-      const replacement = deleted.on_success ?? 'complete'
       const steps = workflow.steps
         .filter((step) => step.id !== stepId)
-        .map((step) =>
-          step.on_success === stepId ? { ...step, on_success: replacement } : step,
-        )
+        .map((step) => step.inputs.includes(stepId)
+          ? { ...step, inputs: [...new Set([...step.inputs.filter((input) => input !== stepId), ...deleted.inputs])] }
+          : step)
       const { [stepId]: _, ...nextPositions } = positionsRef.current
       setSelectedStepId(steps[0]?.id ?? null)
-      applyChange({ ...workflow, steps }, nextPositions, 'Etapa eliminada y transiciones actualizadas')
+      applyChange({ ...workflow, steps }, nextPositions, 'Etapa eliminada y entradas actualizadas')
     },
     [applyChange, workflow],
   )
@@ -607,7 +592,16 @@ function App() {
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target || connection.source === connection.target) return
-      updateStep(connection.source, (step) => ({ ...step, on_success: connection.target! }))
+      const reaches = (from: string, target: string, seen = new Set<string>()): boolean => {
+        if (from === target) return true
+        if (seen.has(from)) return false
+        seen.add(from)
+        return successorIdsForStep(workflowRef.current, from).some((next) => reaches(next, target, seen))
+      }
+      if (reaches(connection.target, connection.source)) return
+      updateStep(connection.target, (step) => step.inputs.includes(connection.source!)
+        ? step
+        : { ...step, inputs: [...step.inputs, connection.source!] })
     },
     [updateStep],
   )
@@ -768,7 +762,7 @@ function App() {
       autosaveTimerRef.current = null
     }
     const revision = autosaveRevisionRef.current
-    await queueWorkflowSave(stringify(workflowRef.current), revision, 'manual')
+    await queueWorkflowSave(workflowToYaml(workflowRef.current), revision, 'manual')
   }, [queueWorkflowSave])
 
 
