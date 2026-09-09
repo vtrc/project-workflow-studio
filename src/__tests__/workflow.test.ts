@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   artifactIdForStep,
   artifactPathForStep,
+  readyStepIds,
+  rootStepIds,
+  successorIdsForStep,
   validateWorkflow,
   workflowFromYaml,
   workflowToYaml,
@@ -9,59 +12,65 @@ import {
 
 const canonicalWorkflow = `
 id: planning-flow
+default_delegation: subagent
 steps:
-  - id: clarify-request
+  - id: research
     prompt: Gather the missing constraints.
-    inputs: [user-request]
-    on_success: make-plan
+    inputs: []
     skills:
       - name: grilling
         role: primary
-  - id: make-plan
-    inputs: [clarify-request]
-    on_success: complete
+  - id: plan
+    inputs: [research]
     skills:
       - name: writing-plans
         role: primary
+  - id: review
+    inputs: [research]
+    skills:
       - name: reviewer
-        role: review
+        role: primary
+  - id: final
+    inputs: [plan, review]
+    skills:
+      - name: synthesizer
+        role: primary
 `
 
 describe('step-owned workflow artifacts', () => {
   it('derives a step artifact identifier and path from its id', () => {
-    const step = { id: 'clarify-request' }
-
-    expect(artifactIdForStep(step)).toBe('clarify-request')
-    expect(artifactPathForStep(step)).toBe('.workflow/artifacts/clarify-request.md')
+    const step = { id: 'research' }
+    expect(artifactIdForStep(step)).toBe('research')
+    expect(artifactPathForStep(step)).toBe('.workflow/artifacts/research.md')
   })
 
-  it('parses an optional step prompt into the canonical model', () => {
+  it('parses roots, child inputs, fan-out, joins, and prompts', () => {
     const workflow = workflowFromYaml(canonicalWorkflow)
-
     expect(workflow.steps[0]?.prompt).toBe('Gather the missing constraints.')
-    expect(workflow.steps[0]?.inputs).toEqual(['user-request'])
+    expect(workflow.steps[0]?.inputs).toEqual([])
+    expect(rootStepIds(workflow)).toEqual(['research'])
+    expect(successorIdsForStep(workflow, 'research')).toEqual(['plan', 'review'])
+    expect(readyStepIds(workflow, new Set(['research']))).toEqual(['plan', 'review'])
+    expect(validateWorkflow(workflow)).toEqual([])
   })
 
-  it('normalizes redundant legacy artifact fields out of the canonical model', () => {
+  it('normalizes redundant legacy artifact fields out of canonical serialization', () => {
     const workflow = workflowFromYaml(`
 id: planning-flow
 artifact_root: .workflow/artifacts
 steps:
-  - id: clarify-request
-    outputs: [clarify-request]
-    inputs: [user-request]
-    on_success: complete
+  - id: research
+    outputs: [research]
+    inputs: []
     skills:
       - name: grilling
         role: primary
-        artifact: clarify-request
-        output_file: .workflow/artifacts/clarify-request.md
+        artifact: research
+        output_file: .workflow/artifacts/research.md
 `)
-
-    expect(workflow).not.toHaveProperty('artifact_root')
-    expect(workflow.steps[0]).not.toHaveProperty('outputs')
-    expect(workflow.steps[0]?.skills[0]).not.toHaveProperty('artifact')
-    expect(workflow.steps[0]?.skills[0]).not.toHaveProperty('output_file')
+    const serialized = workflowToYaml(workflow)
+    expect(serialized).toContain('inputs: []')
+    expect(serialized).not.toMatch(/artifact_root|outputs:|artifact:|output_file:|on_exists:/)
   })
 
   it.each([
@@ -69,61 +78,34 @@ steps:
     ['steps[0].outputs', canonicalWorkflow.replace('prompt: Gather the missing constraints.', 'outputs: [another-artifact]\n    prompt: Gather the missing constraints.')],
     ['steps[0].skills[0].artifact', canonicalWorkflow.replace('role: primary', 'role: primary\n        artifact: another-artifact')],
     ['steps[0].skills[0].output_file', canonicalWorkflow.replace('role: primary', 'role: primary\n        output_file: .workflow/artifacts/another-artifact.md')],
-  ])('rejects a mismatched legacy %s field', (field, source) => {
-    expect(() => workflowFromYaml(source)).toThrow(field)
+  ])('rejects mismatched legacy %s fields', (field, source) => expect(() => workflowFromYaml(source)).toThrow(field))
+
+  it('rejects retired controls and binding overrides with migration diagnostics', () => {
+    expect(() => workflowFromYaml(canonicalWorkflow.replace('inputs: []', 'inputs: []\n    on_success: plan'))).toThrow('steps[0].on_success')
+    expect(() => workflowFromYaml(canonicalWorkflow.replace('role: primary', 'role: primary\n        required: true'))).toThrow('steps[0].skills[0].required')
+    expect(() => workflowFromYaml(canonicalWorkflow.replace('default_delegation: subagent', 'default_delegation: subagent\ndefault_invocation: compose'))).toThrow('default_invocation')
   })
 
-  it('rejects legacy collision and fallback producer settings with migration diagnostics', () => {
-    expect(() => workflowFromYaml(canonicalWorkflow.replace('role: primary', 'role: primary\n        on_exists: version')))
-      .toThrow('steps[0].skills[0].on_exists')
-    expect(() => workflowFromYaml(canonicalWorkflow.replace('role: primary', 'role: fallback')))
-      .toThrow('steps[0].skills[0].role')
-  })
-
-  it.each([
-    ['revision', canonicalWorkflow.replace('steps:', 'revision: 4\nsteps:')],
-    ['steps[0].status', canonicalWorkflow.replace('prompt: Gather the missing constraints.', 'status: complete\n    prompt: Gather the missing constraints.')],
-    ['steps[0].skills[0].checksum', canonicalWorkflow.replace('role: primary', 'role: primary\n        checksum: abc123')],
-  ])('rejects unsupported runtime metadata at %s', (field, source) => {
-    expect(() => workflowFromYaml(source)).toThrow(field)
-  })
-
-  it('validates one primary, preceding inputs, transitions, and non-empty skill lists', () => {
+  it('validates primaries, IDs, ordering, roots, and cycles', () => {
     const workflow = workflowFromYaml(canonicalWorkflow)
-    expect(validateWorkflow(workflow)).toEqual([])
-
     const invalid = structuredClone(workflow)
     invalid.steps[0]!.skills = [{ name: 'reviewer', role: 'review' }]
-    invalid.steps[1]!.inputs = ['make-plan']
-    invalid.steps[1]!.on_success = 'clarify-request'
-    invalid.steps[1]!.skills = []
-
+    invalid.steps[1]!.inputs = ['missing']
+    invalid.steps[2]!.inputs = ['final']
+    invalid.steps[3]!.skills = []
     expect(validateWorkflow(invalid)).toEqual(expect.arrayContaining([
       expect.stringContaining('exactamente una Skill principal'),
-      expect.stringContaining('solo puede usar user-request o etapas anteriores'),
-      expect.stringContaining('debe apuntar a una etapa posterior'),
+      expect.stringContaining('no existe'),
+      expect.stringContaining('solo puede usar etapas anteriores'),
       expect.stringContaining('no tiene ninguna Skill'),
     ]))
   })
 
-  it('serializes only canonical fields while preserving prompts', () => {
-    const serialized = workflowToYaml(workflowFromYaml(`
-id: planning-flow
-artifact_root: .workflow/artifacts
-steps:
-  - id: clarify-request
-    prompt: Gather the missing constraints.
-    outputs: [clarify-request]
-    inputs: [user-request]
-    on_success: complete
-    skills:
-      - name: grilling
-        role: primary
-        artifact: clarify-request
-        output_file: .workflow/artifacts/clarify-request.md
-`))
-
-    expect(serialized).toContain('prompt: Gather the missing constraints.')
-    expect(serialized).not.toMatch(/artifact_root|outputs:|artifact:|output_file:|on_exists:|fallback/)
+  it('requires inputs arrays and serializes only canonical fields', () => {
+    expect(() => workflowFromYaml(`id: invalid\nsteps:\n  - id: root\n    skills: []`)).toThrow('steps[0].inputs')
+    const serialized = workflowToYaml(workflowFromYaml(canonicalWorkflow))
+    expect(serialized).toContain('default_delegation: subagent')
+    expect(serialized).toContain('inputs: []')
+    expect(serialized).not.toMatch(/execution|completion|on_success|on_blocked|invocation|required|outputs/)
   })
 })
