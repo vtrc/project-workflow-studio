@@ -112,6 +112,11 @@ export function nextAvailableId(steps: WorkflowStep[], base: string): string {
   while (identifiers.has(`${base}-${index}`)) index += 1
   return `${base}-${index}`
 }
+export function insertStepAfterParent(steps: WorkflowStep[], nextStep: WorkflowStep, parentId?: string): WorkflowStep[] {
+  const parentIndex = parentId === undefined ? -1 : steps.findIndex((step) => step.id === parentId)
+  if (parentIndex < 0) return [...steps, nextStep]
+  return [...steps.slice(0, parentIndex + 1), nextStep, ...steps.slice(parentIndex + 1)]
+}
 export function successorIdsForStep(recipe: WorkflowRecipe, stepId: string): string[] { return recipe.steps.filter((step) => step.inputs.includes(stepId)).map((step) => step.id) }
 export function rootStepIds(recipe: WorkflowRecipe): string[] { return recipe.steps.filter((step) => step.inputs.length === 0).map((step) => step.id) }
 export function readyStepIds(recipe: WorkflowRecipe, readyArtifactIds: ReadonlySet<string>): string[] {

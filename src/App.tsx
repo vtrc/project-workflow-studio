@@ -35,6 +35,7 @@ import {
   createEmptyStep,
   canConnectSteps,
   defaultWorkflow,
+  insertStepAfterParent,
   nextAvailableId,
   successorIdsForStep,
   validateWorkflow,
@@ -524,14 +525,7 @@ function App() {
     const id = nextAvailableId(workflow.steps, 'new-step')
     const parent = workflow.steps.find((step) => step.id === selectedStepId) ?? workflow.steps.at(-1)
     const nextStep: WorkflowStep = { ...createEmptyStep(id), inputs: parent ? [parent.id] : [] }
-    const parentIndex = parent ? workflow.steps.findIndex((step) => step.id === parent.id) : -1
-    const steps = parent
-      ? [
-          ...workflow.steps.slice(0, parentIndex),
-          nextStep,
-          ...workflow.steps.slice(parentIndex + 1),
-        ]
-      : [nextStep]
+    const steps = insertStepAfterParent(workflow.steps, nextStep, parent?.id)
 
     const placement = positionBelow(parent?.id, positionsRef.current)
     const nextPositions = { ...positionsRef.current, ...placement.shiftedPositions, [id]: placement.position }

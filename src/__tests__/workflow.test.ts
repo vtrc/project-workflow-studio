@@ -3,7 +3,10 @@ import {
   artifactIdForStep,
   artifactPathForStep,
   canConnectSteps,
+  createEmptyStep,
   defaultWorkflow,
+  insertStepAfterParent,
+  nextAvailableId,
   readyStepIds,
   rootStepIds,
   successorIdsForStep,
@@ -135,6 +138,18 @@ steps:
     expect(empty.steps).toEqual([])
     expect(validateWorkflow(empty)).toContain('El workflow vacío no es ejecutable: añade al menos una etapa raíz con inputs: [].')
     expect(validateWorkflow(defaultWorkflow)).toEqual([])
+  })
+
+  it('inserts successive steps after their selected parent without dropping existing steps', () => {
+    let steps = structuredClone(defaultWorkflow.steps)
+    const firstId = nextAvailableId(steps, 'new-step')
+    steps = insertStepAfterParent(steps, { ...createEmptyStep(firstId), inputs: ['clarify-request'] }, 'clarify-request')
+    const secondId = nextAvailableId(steps, 'new-step')
+    steps = insertStepAfterParent(steps, { ...createEmptyStep(secondId), inputs: [firstId] }, firstId)
+
+    expect(steps.map((step) => step.id)).toEqual(['clarify-request', 'new-step', 'new-step-2', 'make-plan'])
+    expect(steps.map((step) => step.inputs)).toEqual([[], ['clarify-request'], ['new-step'], ['clarify-request']])
+    expect(insertStepAfterParent([], createEmptyStep('root'))).toEqual([createEmptyStep('root')])
   })
 
   it('requires inputs arrays and serializes only canonical fields', () => {
