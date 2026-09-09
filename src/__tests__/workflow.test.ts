@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   artifactIdForStep,
   artifactPathForStep,
+  canConnectSteps,
+  defaultWorkflow,
   readyStepIds,
   rootStepIds,
   successorIdsForStep,
@@ -54,6 +56,21 @@ describe('step-owned workflow artifacts', () => {
     expect(validateWorkflow(workflow)).toEqual([])
   })
 
+  it('migrates the legacy user-request root input and serializes a canonical empty input list', () => {
+    const workflow = workflowFromYaml(canonicalWorkflow.replace('inputs: []', 'inputs: [user-request]'))
+
+    expect(workflow.steps[0]?.inputs).toEqual([])
+    expect(workflowToYaml(workflow)).toContain('inputs: []')
+    expect(workflowToYaml(workflow)).not.toContain('user-request')
+  })
+
+  it.each([
+    ['a later Step', canonicalWorkflow.replace('inputs: [research]', 'inputs: [user-request]')],
+    ['a first Step with another input', canonicalWorkflow.replace('inputs: []', 'inputs: [user-request, research]')],
+  ])('rejects user-request migration outside the first Step sole-input case (%s)', (_case, source) => {
+    expect(() => workflowFromYaml(source)).toThrow(/user-request.*migración|migración.*user-request/)
+  })
+
   it('normalizes redundant legacy artifact fields out of canonical serialization', () => {
     const workflow = workflowFromYaml(`
 id: planning-flow
@@ -99,6 +116,25 @@ steps:
       expect.stringContaining('solo puede usar etapas anteriores'),
       expect.stringContaining('no tiene ninguna Skill'),
     ]))
+  })
+
+  it('allows only preceding, non-cyclic connections', () => {
+    const workflow = workflowFromYaml(canonicalWorkflow)
+    expect(canConnectSteps(workflow, 'research', 'plan')).toBe(true)
+    expect(canConnectSteps(workflow, 'plan', 'research')).toBe(false)
+    expect(canConnectSteps(workflow, 'research', 'research')).toBe(false)
+
+    const cyclic = structuredClone(workflow)
+    cyclic.steps[1]!.inputs = ['review']
+    expect(canConnectSteps(cyclic, 'plan', 'review')).toBe(false)
+  })
+
+  it('reports an empty imported workflow as a non-executable draft', () => {
+    const empty = workflowFromYaml('id: draft\nsteps: []\n')
+
+    expect(empty.steps).toEqual([])
+    expect(validateWorkflow(empty)).toContain('El workflow vacío no es ejecutable: añade al menos una etapa raíz con inputs: [].')
+    expect(validateWorkflow(defaultWorkflow)).toEqual([])
   })
 
   it('requires inputs arrays and serializes only canonical fields', () => {

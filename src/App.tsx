@@ -33,6 +33,7 @@ import { SkillCatalogPanel } from './components/SkillCatalogPanel'
 import { WorkflowNode, type WorkflowNodeData } from './components/WorkflowNode'
 import {
   createEmptyStep,
+  canConnectSteps,
   defaultWorkflow,
   nextAvailableId,
   successorIdsForStep,
@@ -592,13 +593,7 @@ function App() {
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target || connection.source === connection.target) return
-      const reaches = (from: string, target: string, seen = new Set<string>()): boolean => {
-        if (from === target) return true
-        if (seen.has(from)) return false
-        seen.add(from)
-        return successorIdsForStep(workflowRef.current, from).some((next) => reaches(next, target, seen))
-      }
-      if (reaches(connection.target, connection.source)) return
+      if (!canConnectSteps(workflowRef.current, connection.source, connection.target)) return
       updateStep(connection.target, (step) => step.inputs.includes(connection.source!)
         ? step
         : { ...step, inputs: [...step.inputs, connection.source!] })

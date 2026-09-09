@@ -63,17 +63,23 @@ function parseStep(value: unknown, index: number): WorkflowStep {
   const id = requiredString(value.id, `${path}.id`)
   if (!Array.isArray(value.skills)) throw new Error(`Campo obligatorio ausente “${path}.skills”.`)
   if (!Array.isArray(value.inputs)) throw new Error(`Campo obligatorio ausente “${path}.inputs”.`)
+  const inputs = requiredStrings(value.inputs, `${path}.inputs`)
   const outputs = optionalStrings(value.outputs, `${path}.outputs`)
   if (outputs !== undefined && (outputs.length !== 1 || outputs[0] !== artifactIdForStep({ id }))) rejectRetiredField(`${path}.outputs`, `debe ser el id derivado “${artifactIdForStep({ id })}”.`)
   for (const field of ['execution', 'completion', 'on_success', 'on_blocked']) if (!absent(value[field])) rejectRetiredField(`${path}.${field}`, 'la disponibilidad se deriva de inputs y la ejecución la gestiona el Step runner.')
+  const skills = value.skills.map((skill, skillIndex) => parseSkill(skill, skillIndex, index, id))
+  if (inputs.includes('user-request')) {
+    if (index === 0 && inputs.length === 1) inputs.length = 0
+    else throw new Error(`Entrada heredada “user-request” en “${path}.inputs”: la migración solo se admite cuando es el único input del primer Step; este uso no tiene equivalente canónico y debe eliminarse.`)
+  }
   return {
     id,
     prompt: optionalString(value.prompt, `${path}.prompt`),
     model: optionalString(value.model, `${path}.model`),
     reasoning_effort: optionalString(value.reasoning_effort, `${path}.reasoning_effort`),
     delegation: optionalEnum(value.delegation, delegationModes, `${path}.delegation`),
-    inputs: requiredStrings(value.inputs, `${path}.inputs`),
-    skills: value.skills.map((skill, skillIndex) => parseSkill(skill, skillIndex, index, id)),
+    inputs,
+    skills,
   }
 }
 
@@ -112,13 +118,30 @@ export function readyStepIds(recipe: WorkflowRecipe, readyArtifactIds: ReadonlyS
   return recipe.steps.filter((step) => !readyArtifactIds.has(step.id) && step.inputs.every((input) => readyArtifactIds.has(input))).map((step) => step.id)
 }
 
+export function canConnectSteps(recipe: WorkflowRecipe, sourceId: string, targetId: string): boolean {
+  if (!sourceId || !targetId || sourceId === targetId) return false
+  const sourceIndex = recipe.steps.findIndex((step) => step.id === sourceId)
+  const targetIndex = recipe.steps.findIndex((step) => step.id === targetId)
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex >= targetIndex) return false
+
+  const reaches = (from: string, target: string, seen = new Set<string>()): boolean => {
+    if (from === target) return true
+    if (seen.has(from)) return false
+    seen.add(from)
+    return successorIdsForStep(recipe, from).some((next) => reaches(next, target, seen))
+  }
+
+  return !reaches(targetId, sourceId)
+}
+
 export function validateWorkflow(recipe: WorkflowRecipe): string[] {
   const issues: string[] = []
   const ids = recipe.steps.map((step) => step.id)
   const idSet = new Set(ids)
   const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index)
   if (duplicates.length > 0) issues.push('Cada etapa necesita un identificador único.')
-  if (recipe.steps.length > 0 && rootStepIds(recipe).length === 0) issues.push('El grafo necesita al menos una etapa raíz con inputs: [].')
+  if (recipe.steps.length === 0) issues.push('El workflow vacío no es ejecutable: añade al menos una etapa raíz con inputs: [].')
+  else if (rootStepIds(recipe).length === 0) issues.push('El grafo necesita al menos una etapa raíz con inputs: [].')
   recipe.steps.forEach((step, stepIndex) => {
     if (!step.id.trim()) issues.push('Hay una etapa sin identificador.')
     if (!Array.isArray(step.inputs)) issues.push(`La etapa “${step.id || 'sin nombre'}” debe declarar inputs.`)

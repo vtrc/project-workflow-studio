@@ -64,6 +64,8 @@ steps:
 
 `inputs` es el único borde declarado del grafo. Las etapas raíz usan `inputs: []`; varias etapas pueden consumir el mismo padre (fan-out), y una etapa puede esperar varios padres (fan-in). El orquestador prepara la conversación, todos los artefactos declarados y `step.prompt`, y delega una unidad completa al Step runner. El Step runner carga las Skills; cada etapa debe contener exactamente una Skill con el papel `primary`, que publica el artefacto derivado. Las Skills `supporting` y `review` aportan contexto, pero no publican artefactos públicos separados.
 
+Un workflow operativo necesita al menos una etapa raíz; `steps: []` se puede abrir como borrador, pero se marca como no ejecutable hasta añadir una etapa con `inputs: []`.
+
 Una etapa queda lista cuando todos los IDs de `inputs` tienen un artefacto registrado. Si una etapa se bloquea, el runtime conserva el estado y pregunta al usuario; no existe una política de bloqueo escrita en YAML.
 
 Las revisiones, los checksums, el estado de ejecución, el linaje, las sustituciones y la gestión de colisiones pertenecen exclusivamente al registro de ejecución. Por tanto, `workflow.yaml` no incluye metadatos de revisión ni rutas de salida configurables por Skill.
@@ -71,6 +73,8 @@ Las revisiones, los checksums, el estado de ejecución, el linaje, las sustituci
 ### Importación de recetas anteriores
 
 El Studio puede importar formatos anteriores cuando `artifact_root`, `outputs`, `artifact` y `output_file` repiten exactamente el ID y la ruta derivados. Al guardar, siempre exporta el formato canónico y elimina esos campos redundantes. Las recetas que usan `on_success`, `execution`, `completion`, `on_blocked`, `default_invocation`, `default_on_blocked`, `required`, `invocation` u otros overrides de binding se rechazan con un diagnóstico de migración específico: el grafo, la ejecución delegada, la finalización primaria y el bloqueo fijo ya sustituyen esas decisiones.
+
+La entrada heredada `user-request` solo se migra cuando es el único `input` de la primera etapa; en cualquier otro Step se rechaza porque no tiene un equivalente canónico.
 
 ## Historial local
 
